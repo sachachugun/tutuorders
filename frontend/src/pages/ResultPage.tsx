@@ -6,7 +6,7 @@ type Props = {
 };
 
 export function ResultPage({ result }: Props) {
-  if (!result) return <p>Результат пока не получен.</p>;
+  if (!result) return <p className="muted">Результат пока не получен.</p>;
 
   const [items, setItems] = useState<any[]>(result.items || []);
   useEffect(() => {
@@ -32,6 +32,9 @@ export function ResultPage({ result }: Props) {
     return ids;
   }, [items]);
   const totalPositions = items.length;
+  const notFound = result.not_found_in_suppliers || [];
+  const isDegraded = Boolean(result.degraded_mode);
+  const degradedReason = result.degraded_reason || "";
   const supplierTotals = useMemo(() => {
     const totals: Record<number, number> = {};
     for (const item of items) {
@@ -58,12 +61,35 @@ export function ResultPage({ result }: Props) {
 
   return (
     <section>
-      <h2>Результат</h2>
-      <p>Валюта: {result.currency}</p>
-      <p>Неразобранных строк: {(result.unparsed_lines || []).length}</p>
-      <p>Время: {result.elapsed_ms} ms</p>
+      <h2 className="section-title">Результат сопоставления</h2>
+      <div className="match-status-row">
+        <span className={isDegraded ? "match-status-badge info" : "match-status-badge ok"}>
+          {isDegraded ? "Режим проверки: без ИИ" : "Режим проверки: с ИИ"}
+        </span>
+        {isDegraded && (
+          <span className="match-status-reason">
+            Причина: {degradedReason}
+          </span>
+        )}
+      </div>
+      <div className="meta-row">
+        <p><span className="muted">Валюта:</span> {result.currency}</p>
+        <p><span className="muted">Неразобранных строк:</span> {(result.unparsed_lines || []).length}</p>
+        <p><span className="muted">Время:</span> {result.elapsed_ms} ms</p>
+      </div>
+      {!!notFound.length && (
+        <div className="parse-warning">
+          <strong>Не найдено в прайсах поставщиков:</strong>
+          <ul>
+            {notFound.map((item: any, idx: number) => (
+              <li key={`${item.name}-${idx}`}>{item.name} — {Number(item.quantity).toFixed(3)} {item.unit}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
-      <table>
+      <div className="table-wrap">
+      <table className="result-table">
         <thead>
           <tr>
             <th>Продукт</th>
@@ -73,6 +99,7 @@ export function ResultPage({ result }: Props) {
               <th key={`alloc-${id}`}>Кол-во {supplierNames[id] || `S${id}`}</th>
             ))}
             <th>Сумма, RUB</th>
+            <th>Комментарий</th>
           </tr>
         </thead>
         <tbody>
@@ -84,9 +111,10 @@ export function ResultPage({ result }: Props) {
               <td key={`sum-${supplierId}`}>{Number(supplierTotals[supplierId] || 0).toFixed(2)}</td>
             ))}
             <td>{Number(items.reduce((acc: number, item: any) => acc + Number(item.row_total || 0), 0)).toFixed(2)}</td>
+            <td />
           </tr>
           {items.map((item: any, idx: number) => (
-            <tr key={`${item.canonical_name}-${idx}`}>
+            <tr key={`${item.canonical_name}-${idx}`} className={!item.matches?.length ? "row-not-found" : ""}>
               <td>{item.canonical_name}</td>
               <td>{item.unit}</td>
               <td>{Number(item.quantity).toFixed(3)}</td>
@@ -95,11 +123,13 @@ export function ResultPage({ result }: Props) {
                 return <td key={`${idx}-${supplierId}`}>{Number(allocation?.quantity || 0).toFixed(3)}</td>;
               })}
               <td>{Number(item.row_total || 0).toFixed(2)}</td>
+              <td className="comment-cell">{item.comment || ""}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      <button onClick={onDownload}>Скачать xlsx</button>
+      </div>
+      <button className="btn btn-primary" onClick={onDownload}>Скачать xlsx</button>
     </section>
   );
 }
