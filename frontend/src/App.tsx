@@ -12,20 +12,27 @@ export function App() {
   return (
     <main className="container">
       <header className="header">
-        <h1>tutuorders</h1>
+        <div className="brand-block">
+          <p className="eyebrow">Culinary procurement</p>
+          <div className="brand-logo-wrap">
+            <img className="brand-logo" src="/tutuorders-logo.png" alt="tutuorders" />
+          </div>
+        </div>
         <nav className="tabs">
-          <button onClick={() => setScreen("prices")}>Прайсы</button>
-          <button onClick={() => setScreen("order")}>Заказ</button>
-          <button onClick={() => setScreen("result")}>Результат</button>
+          <button className={screen === "prices" ? "tab active" : "tab"} onClick={() => setScreen("prices")}>Прайсы</button>
+          <button className={screen === "order" ? "tab active" : "tab"} onClick={() => setScreen("order")}>Заказ</button>
+          <button className={screen === "result" ? "tab active" : "tab"} onClick={() => setScreen("result")}>Результат</button>
         </nav>
       </header>
 
-      {screen === "prices" && <PricesPage />}
-      {screen === "order" && <OrderPage onMatched={(result) => {
-        setMatchResult(result);
-        setScreen("result");
-      }} />}
-      {screen === "result" && <ResultPage result={matchResult} />}
+      <section className="panel">
+        {screen === "prices" && <PricesPage />}
+        {screen === "order" && <OrderPage onMatched={(result) => {
+          setMatchResult(result);
+          setScreen("result");
+        }} />}
+        {screen === "result" && <ResultPage result={matchResult} />}
+      </section>
     </main>
   );
 }

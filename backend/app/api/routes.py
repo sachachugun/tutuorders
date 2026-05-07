@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import get_db
 from app.models import Price, Setting, Supplier
+from app.parsers.order_parser import parse_order_text
 from app.schemas import MatchRequest, SettingsOut, SettingsUpdateRequest, SupplierUpdateRequest, SuppliersResponse
 from app.services.export_service import build_export_xlsx
 from app.services.match_service import run_match
@@ -37,6 +38,20 @@ def list_suppliers(db: Session = Depends(get_db)):
     return {"items": items}
 
 
+@router.get("/prices/format-help")
+def prices_format_help():
+    return {
+        "common": [
+            "Поддерживаются только .xls и .xlsx",
+            "Один файл до 500 строк данных",
+            "Формат колонок: A=название продукта, B=единица, C=цена",
+            "Цена должна быть > 0",
+            "Единицы: кг, г/гр, л, мл",
+            "Первая строка может быть заголовком, это не обязательно",
+        ]
+    }
+
+
 @router.post("/prices/upload")
 async def upload_price(
     supplier_id: int = Form(...),
@@ -65,6 +80,17 @@ async def upload_price(
 @router.post("/match")
 def match_order(payload: MatchRequest, db: Session = Depends(get_db)):
     return run_match(db, payload.order_text)
+
+
+@router.post("/order/parse")
+def parse_order(payload: MatchRequest):
+    parsed_items, unparsed_lines = parse_order_text(payload.order_text)
+    return {
+        "parsed_items": parsed_items,
+        "unparsed_lines": unparsed_lines,
+        "parsed_count": len(parsed_items),
+        "total_lines": len([line for line in payload.order_text.splitlines() if line.strip()]),
+    }
 
 
 @router.put("/suppliers/{supplier_id}")
