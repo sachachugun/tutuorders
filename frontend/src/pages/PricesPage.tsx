@@ -96,16 +96,23 @@ export function PricesPage() {
                 }
               />
             </label>
+            <p className="muted">Сначала сохраните изменения карточки поставщика</p>
+            <div className="actions-row">
+              <button className="btn btn-primary" onClick={() => onSave(s.id)}>Сохранить</button>
+            </div>
+            <p className="muted">Отдельно загрузите файл прайса (заменяет старый)</p>
             <p className="muted">Загружено позиций: {s.price_items_count}</p>
             <input
               className="file-input"
               type="file"
               accept=".xls,.xlsx"
-              onChange={(e) => onUpload(s.id, e.target.files?.[0] || null)}
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null;
+                void onUpload(s.id, file);
+                // Allow re-uploading the same file name consecutively.
+                e.target.value = "";
+              }}
             />
-            <div className="actions-row">
-              <button className="btn btn-primary" onClick={() => onSave(s.id)}>Сохранить</button>
-            </div>
           </article>
         ))}
       </div>

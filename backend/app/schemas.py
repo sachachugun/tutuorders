@@ -31,3 +31,8 @@ class SettingsOut(BaseModel):
 class SettingsUpdateRequest(BaseModel):
     folder_id: str
     model_name: str
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1)
+    password: str = Field(min_length=1)

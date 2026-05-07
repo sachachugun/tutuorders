@@ -78,6 +78,11 @@ h1 {
   box-shadow: 0 8px 30px rgba(72, 42, 86, 0.08);
 }
 
+.auth-card {
+  max-width: 420px;
+  margin: 40px auto;
+}
+
 .tabs {
   display: flex;
   gap: 8px;

@@ -4,10 +4,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.auth import create_access_token, require_auth, verify_login
 from app.db import get_db
 from app.models import Price, Setting, Supplier
 from app.parsers.order_parser import parse_order_text
-from app.schemas import MatchRequest, SettingsOut, SettingsUpdateRequest, SupplierUpdateRequest, SuppliersResponse
+from app.schemas import LoginRequest, MatchRequest, SettingsOut, SettingsUpdateRequest, SupplierUpdateRequest, SuppliersResponse
 from app.services.export_service import build_export_xlsx
 from app.services.match_service import run_match
 from app.services.price_import_service import normalize_price_rows, parse_price_file, replace_supplier_prices
@@ -20,8 +21,21 @@ def health():
     return {"ok": True}
 
 
+@router.post("/auth/login")
+def login(payload: LoginRequest):
+    if not verify_login(payload.username.strip(), payload.password):
+        raise HTTPException(status_code=401, detail="Неверный логин или пароль")
+    token, expires_at = create_access_token(payload.username.strip())
+    return {"access_token": token, "token_type": "bearer", "expires_at": expires_at}
+
+
+@router.get("/auth/me")
+def auth_me(current_user: str = Depends(require_auth)):
+    return {"username": current_user}
+
+
 @router.get("/suppliers", response_model=SuppliersResponse)
-def list_suppliers(db: Session = Depends(get_db)):
+def list_suppliers(db: Session = Depends(get_db), _: str = Depends(require_auth)):
     suppliers = db.scalars(select(Supplier).order_by(Supplier.id)).all()
     items = []
     for supplier in suppliers:
@@ -39,7 +53,7 @@ def list_suppliers(db: Session = Depends(get_db)):
 
 
 @router.get("/prices/format-help")
-def prices_format_help():
+def prices_format_help(_: str = Depends(require_auth)):
     return {
         "common": [
             "Поддерживаются только .xls и .xlsx",
@@ -57,6 +71,7 @@ async def upload_price(
     supplier_id: int = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    _: str = Depends(require_auth),
 ):
     supplier = db.get(Supplier, supplier_id)
     if not supplier:
@@ -78,12 +93,12 @@ async def upload_price(
 
 
 @router.post("/match")
-def match_order(payload: MatchRequest, db: Session = Depends(get_db)):
+def match_order(payload: MatchRequest, db: Session = Depends(get_db), _: str = Depends(require_auth)):
     return run_match(db, payload.order_text)
 
 
 @router.post("/order/parse")
-def parse_order(payload: MatchRequest):
+def parse_order(payload: MatchRequest, _: str = Depends(require_auth)):
     parsed_items, unparsed_lines = parse_order_text(payload.order_text)
     return {
         "parsed_items": parsed_items,
@@ -94,7 +109,12 @@ def parse_order(payload: MatchRequest):
 
 
 @router.put("/suppliers/{supplier_id}")
-def update_supplier(supplier_id: int, payload: SupplierUpdateRequest, db: Session = Depends(get_db)):
+def update_supplier(
+    supplier_id: int,
+    payload: SupplierUpdateRequest,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_auth),
+):
     supplier = db.get(Supplier, supplier_id)
     if not supplier:
         raise HTTPException(status_code=404, detail="Поставщик не найден")
@@ -112,7 +132,7 @@ def update_supplier(supplier_id: int, payload: SupplierUpdateRequest, db: Sessio
 
 
 @router.post("/export")
-def export_xlsx(payload: dict):
+def export_xlsx(payload: dict, _: str = Depends(require_auth)):
     file_content = build_export_xlsx(payload)
     return Response(
         content=file_content,
@@ -122,7 +142,7 @@ def export_xlsx(payload: dict):
 
 
 @router.get("/settings", response_model=SettingsOut)
-def get_settings(db: Session = Depends(get_db)):
+def get_settings(db: Session = Depends(get_db), _: str = Depends(require_auth)):
     folder_id = db.get(Setting, "folder_id")
     model_name = db.get(Setting, "model_name")
     return {
@@ -133,7 +153,7 @@ def get_settings(db: Session = Depends(get_db)):
 
 
 @router.put("/settings", response_model=SettingsOut)
-def update_settings(payload: SettingsUpdateRequest, db: Session = Depends(get_db)):
+def update_settings(payload: SettingsUpdateRequest, db: Session = Depends(get_db), _: str = Depends(require_auth)):
     for key, value in (("folder_id", payload.folder_id), ("model_name", payload.model_name)):
         entry = db.get(Setting, key)
         if entry:
