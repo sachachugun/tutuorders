@@ -1,10 +1,21 @@
 import { useEffect, useState } from "react";
-import { getSuppliers, updateSupplier, uploadPrice } from "../api";
+import { getPriceFormatHelp, getSuppliers, updateSupplier, uploadPrice } from "../api";
+
+function formatUploadDate(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString("ru-RU");
+}
 
 export function PricesPage() {
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [drafts, setDrafts] = useState<Record<number, { name: string; min_order_amount: string }>>({});
   const [message, setMessage] = useState("");
+  const [formatHelp, setFormatHelp] = useState<any>(null);
+  const [lastUploadFlash, setLastUploadFlash] = useState<
+    Record<number, { at: number; fileName: string; savedRows: number }>
+  >({});
 
   const loadSuppliers = () => {
     getSuppliers()
@@ -20,13 +31,25 @@ export function PricesPage() {
       .catch(() => setSuppliers([]));
   };
 
-  useEffect(() => loadSuppliers(), []);
+  useEffect(() => {
+    loadSuppliers();
+    getPriceFormatHelp().then(setFormatHelp).catch(() => setFormatHelp(null));
+  }, []);
 
   const onUpload = async (supplierId: number, file: File | null) => {
     if (!file) return;
     setMessage("");
     try {
       const result = await uploadPrice(supplierId, file);
+      const uploadedAt = Date.now();
+      setLastUploadFlash((prev) => ({
+        ...prev,
+        [supplierId]: {
+          at: uploadedAt,
+          fileName: file.name,
+          savedRows: result.saved_rows,
+        },
+      }));
       setMessage(`Прайс загружен: сохранено ${result.saved_rows} позиций`);
       loadSuppliers();
     } catch (e) {
@@ -52,14 +75,22 @@ export function PricesPage() {
 
   return (
     <section>
-      <h2>Прайсы</h2>
-      {message && <p>{message}</p>}
+      <h2 className="section-title">Прайсы поставщиков</h2>
+      {message && <p className="status-message">{message}</p>}
+      {formatHelp && (
+        <div className="format-help">
+          <strong>Требования к файлам прайсов</strong>
+          <ul>
+            {formatHelp.common?.map((line: string, idx: number) => <li key={`common-${idx}`}>{line}</li>)}
+          </ul>
+        </div>
+      )}
       <div className="cards">
         {suppliers.map((s) => (
           <article className="card" key={s.id}>
-            <h3>Поставщик #{s.id}</h3>
-            <label>
-              Имя:
+            <h3 className="card-title">Поставщик #{s.id}</h3>
+            <label className="field">
+              <span>Имя</span>
               <input
                 value={drafts[s.id]?.name ?? s.name}
                 onChange={(e) =>
@@ -70,8 +101,8 @@ export function PricesPage() {
                 }
               />
             </label>
-            <label>
-              Минимум:
+            <label className="field">
+              <span>Минимальный заказ, RUB</span>
               <input
                 type="number"
                 step="0.01"
@@ -84,15 +115,36 @@ export function PricesPage() {
                 }
               />
             </label>
-            <p>Загружено позиций: {s.price_items_count}</p>
+            <p className="muted">Сначала сохраните изменения карточки поставщика</p>
+            <div className="actions-row">
+              <button className="btn btn-primary" onClick={() => onSave(s.id)}>Сохранить</button>
+            </div>
+            <p className="muted">Отдельно загрузите файл прайса (заменяет старый)</p>
+            <p className="muted">
+              Загружено позиций: {s.price_items_count}
+              {formatUploadDate(s.last_price_upload_at) ? (
+                <> · последняя загрузка: {formatUploadDate(s.last_price_upload_at)}</>
+              ) : s.price_items_count > 0 ? (
+                <> · дата загрузки неизвестна</>
+              ) : null}
+            </p>
+            {lastUploadFlash[s.id] && (
+              <p className="upload-just-now">
+                Файл «{lastUploadFlash[s.id].fileName}» только что загружен, сохранено{" "}
+                {lastUploadFlash[s.id].savedRows} позиций
+              </p>
+            )}
             <input
+              className="file-input"
               type="file"
               accept=".xls,.xlsx"
-              onChange={(e) => onUpload(s.id, e.target.files?.[0] || null)}
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null;
+                void onUpload(s.id, file);
+                // Allow re-uploading the same file name consecutively.
+                e.target.value = "";
+              }}
             />
-            <div>
-              <button onClick={() => onSave(s.id)}>Сохранить</button>
-            </div>
           </article>
         ))}
       </div>

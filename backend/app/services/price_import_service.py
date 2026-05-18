@@ -37,40 +37,46 @@ def _normalize_unit(raw_unit: object) -> str:
 
 
 def parse_price_file(file_name: str, file_content: bytes, supplier_id: int) -> list[dict]:
+    if not file_content:
+        raise HTTPException(status_code=400, detail="Файл пустой. Загрузите прайс в формате .xls или .xlsx")
     ext = (file_name or "").lower()
     if ext.endswith(".xlsx"):
-        return _parse_xlsx(file_content, supplier_id)
+        return _parse_xlsx(file_content)
     if ext.endswith(".xls"):
-        return _parse_xls(file_content, supplier_id)
+        return _parse_xls(file_content)
     raise HTTPException(status_code=400, detail="Поддерживаются только .xls и .xlsx")
 
 
-def _parse_xlsx(file_content: bytes, supplier_id: int) -> list[dict]:
+def _parse_xlsx(file_content: bytes) -> list[dict]:
     workbook = openpyxl.load_workbook(BytesIO(file_content), read_only=True, data_only=True)
     sheet = workbook.active
-    header = next(sheet.iter_rows(min_row=1, max_row=1, values_only=True), None)
-    col_name, col_unit, col_price, has_header = _resolve_columns(header, supplier_id)
+    header = next(sheet.iter_rows(min_row=1, max_row=1, values_only=True), ())
+    has_header = _looks_like_header(header)
     start_row = 2 if has_header else 1
     rows: list[dict] = []
     for index, row in enumerate(sheet.iter_rows(min_row=start_row, values_only=True), start=1):
         if index > MAX_ROWS:
             raise HTTPException(status_code=400, detail="Лимит прайса: не более 500 строк")
-        rows.append(_extract_row(row, col_name, col_unit, col_price))
+        rows.append(_extract_row(row, 0, 1, 2))
+    if not rows:
+        raise HTTPException(status_code=400, detail="Не найдено строк с данными в прайсе")
     return rows
 
 
-def _parse_xls(file_content: bytes, supplier_id: int) -> list[dict]:
+def _parse_xls(file_content: bytes) -> list[dict]:
     workbook = xlrd.open_workbook(file_contents=file_content)
     sheet = workbook.sheet_by_index(0)
-    header = sheet.row_values(0) if sheet.nrows > 0 else None
-    col_name, col_unit, col_price, has_header = _resolve_columns(header, supplier_id)
+    header = sheet.row_values(0) if sheet.nrows > 0 else []
+    has_header = _looks_like_header(header)
     start_row = 1 if has_header else 0
     rows: list[dict] = []
     for index, row_idx in enumerate(range(start_row, sheet.nrows), start=1):
         if index > MAX_ROWS:
             raise HTTPException(status_code=400, detail="Лимит прайса: не более 500 строк")
         row = sheet.row_values(row_idx)
-        rows.append(_extract_row(row, col_name, col_unit, col_price))
+        rows.append(_extract_row(row, 0, 1, 2))
+    if not rows:
+        raise HTTPException(status_code=400, detail="Не найдено строк с данными в прайсе")
     return rows
 
 
@@ -82,41 +88,18 @@ def _extract_row(row: object, col_name: int, col_unit: int, col_price: int) -> d
     return {"name_in_price": name_in_price, "unit": unit, "raw_unit": raw_unit, "price": price}
 
 
-def _resolve_columns(header: object, supplier_id: int) -> tuple[int, int, int, bool]:
-    # Default fallback
-    fallback = (0, 1, 2)
-    if not header:
-        return (*fallback, False)
-
-    normalized = [str(h or "").strip().lower() for h in header]
-    index_by_name = {name: idx for idx, name in enumerate(normalized)}
-
-    # Supplier 1 (Кулинарная студия): Номенклатура | Ед | Новая продажная цена
-    if supplier_id == 1:
-        if (
-            "номенклатура" in index_by_name
-            and "ед" in index_by_name
-            and "новая продажная цена" in index_by_name
-        ):
-            return (
-                index_by_name["номенклатура"],
-                index_by_name["ед"],
-                index_by_name["новая продажная цена"],
-                True,
-            )
-
-    # Supplier 2 (Домпродукт): often A=name, B=unit, E=price with visible header.
-    if supplier_id == 2:
-        if "новая продажная цена" in index_by_name:
-            return (
-                0,
-                1,
-                index_by_name["новая продажная цена"],
-                True,
-            )
-        return (*fallback, False)
-
-    return (*fallback, False)
+def _looks_like_header(header: object) -> bool:
+    normalized = [str(h or "").strip().lower() for h in (header or [])]
+    if len(normalized) < 3:
+        return False
+    col_a = normalized[0]
+    col_b = normalized[1]
+    col_c = normalized[2]
+    return (
+        any(token in col_a for token in ("номенклат", "товар", "продукт", "наименование", "name"))
+        and any(token in col_b for token in ("ед", "unit", "единиц"))
+        and any(token in col_c for token in ("цена", "price", "стоим"))
+    )
 
 
 def normalize_price_rows(rows: list[dict]) -> tuple[list[dict], dict]:
@@ -142,7 +125,16 @@ def normalize_price_rows(rows: list[dict]) -> tuple[list[dict], dict]:
             dedup[name] = {"name_in_price": name, "unit": row.get("unit", "кг"), "price": round(price, 2)}
         else:
             stats["duplicates_removed"] += 1
-    return list(dedup.values()), stats
+    normalized = list(dedup.values())
+    if not normalized:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Не найдено валидных позиций с ценой > 0. "
+                "Проверьте, что в файле заполнены название, единица и цена."
+            ),
+        )
+    return normalized, stats
 
 
 def _is_section_row(name: str, raw_unit: str) -> bool:
@@ -168,5 +160,5 @@ def replace_supplier_prices(db: Session, supplier_id: int, normalized_rows: list
         )
     supplier = db.get(Supplier, supplier_id)
     if supplier:
-        supplier.updated_at = datetime.now(timezone.utc)
+        supplier.last_price_upload_at = datetime.now(timezone.utc)
     db.commit()

@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     yandex_model_name: str = "yandexgpt-pro"
     yandex_api_key: str = ""
     yandex_timeout_seconds: int = 25
+    auth_enabled: bool = False
+    auth_username: str = "admin"
+    auth_password: str = "admin123"
+    auth_secret: str = "change-me-please"
+    auth_token_ttl_seconds: int = 28800
 
 
 settings = Settings()

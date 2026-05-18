@@ -28,6 +28,7 @@ def build_export_xlsx(payload: dict) -> bytes:
     for supplier_id in supplier_ids:
         name = supplier_names.get(str(supplier_id), f"S{supplier_id}")
         header.append(f"Сумма {name}")
+    header.append("Комментарий")
     ws.append(header)
 
     price_start = 4
@@ -50,6 +51,7 @@ def build_export_xlsx(payload: dict) -> bytes:
             row.append(alloc_qty)
         for _ in supplier_ids:
             row.append(None)
+        row.append(item.get("comment", ""))
         ws.append(row)
 
         for idx, _ in enumerate(supplier_ids):

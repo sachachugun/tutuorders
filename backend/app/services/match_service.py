@@ -14,6 +14,12 @@ from app.parsers.order_parser import parse_order_text
 
 logger = logging.getLogger(__name__)
 YANDEX_URL = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
+UNIT_GROUP = {
+    "кг": "mass",
+    "г": "mass",
+    "л": "volume",
+    "мл": "volume",
+}
 
 
 def _safe_error_text(raw: str, limit: int = 300) -> str:
@@ -39,7 +45,12 @@ def _extract_json_object(raw_text: str) -> str:
 
 def _loads_model_json(raw_text: str) -> dict:
     candidate = _extract_json_object(raw_text)
-    return json.loads(candidate)
+    parsed = json.loads(candidate)
+    if isinstance(parsed, list):
+        return {"items": parsed}
+    if isinstance(parsed, dict):
+        return parsed
+    raise json.JSONDecodeError("Top-level JSON must be object or array", candidate, 0)
 
 
 def _build_input_payload(parsed_items: list[dict], suppliers: list[Supplier], prices: list[Price]) -> dict:
@@ -64,6 +75,37 @@ def _normalize_name(value: str) -> str:
     text = text.replace("ё", "е")
     text = " ".join(text.split())
     return text
+
+
+def _tokenize_name(value: str) -> set[str]:
+    tokens = re.findall(r"[a-zа-я0-9]+", _normalize_name(value))
+    return {token for token in tokens if len(token) >= 2}
+
+
+def _units_compatible(order_unit: str, candidate_unit: str) -> bool:
+    order_group = UNIT_GROUP.get((order_unit or "").strip().lower())
+    candidate_group = UNIT_GROUP.get((candidate_unit or "").strip().lower())
+    if not order_group or not candidate_group:
+        return True
+    return order_group == candidate_group
+
+
+def _name_match_score(needle: str, hay: str) -> float:
+    if not needle or not hay:
+        return 0.0
+    if needle == hay:
+        return 1.0
+    if needle in hay or hay in needle:
+        return 0.95
+    needle_tokens = _tokenize_name(needle)
+    hay_tokens = _tokenize_name(hay)
+    if not needle_tokens or not hay_tokens:
+        return 0.0
+    intersection = needle_tokens & hay_tokens
+    if not intersection:
+        return 0.0
+    union = needle_tokens | hay_tokens
+    return len(intersection) / len(union)
 
 
 def _ensure_all_items_present(parsed_items: list[dict], model_items: list[dict]) -> list[dict]:
@@ -97,20 +139,30 @@ def _attach_db_fallback_matches(items: list[dict], prices: list[Price], supplier
         if item.get("matches"):
             continue
         needle = _normalize_name(str(item.get("canonical_name", "")))
+        order_unit = str(item.get("unit", ""))
         if not needle:
             continue
 
         fallback_matches = []
         for supplier in suppliers:
             best_price: Price | None = None
+            best_score = 0.0
             for candidate in by_supplier.get(supplier.id, []):
+                if not _units_compatible(order_unit, candidate.unit):
+                    continue
                 hay = _normalize_name(candidate.name_in_price)
                 if not hay:
                     continue
-                # MVP fallback: exact/containment match from DB price lines.
-                if needle == hay or needle in hay or hay in needle:
-                    if best_price is None or float(candidate.price) < float(best_price.price):
-                        best_price = candidate
+                score = _name_match_score(needle, hay)
+                if score < 0.6:
+                    continue
+                if (
+                    best_price is None
+                    or score > best_score
+                    or (score == best_score and float(candidate.price) < float(best_price.price))
+                ):
+                    best_price = candidate
+                    best_score = score
             if best_price is not None:
                 fallback_matches.append(
                     {
@@ -170,6 +222,48 @@ def _call_yandex_gpt(payload: dict) -> dict:
     return _parse_model_json_with_retry(text, payload)
 
 
+def _repair_json_via_model(payload: dict, invalid_text: str) -> dict:
+    body = {
+        "modelUri": f"gpt://{settings.yandex_folder_id}/{settings.yandex_model_name}/latest",
+        "completionOptions": {"temperature": 0.0, "maxTokens": 4000},
+        "messages": [
+            {
+                "role": "system",
+                "text": (
+                    "Преобразуй ответ в строго валидный JSON-объект формата "
+                    '{"items":[{"canonical_name":"string","quantity":0,"unit":"кг|г|л|мл","matches":[{"supplier_id":0,'
+                    '"name_in_price":"string","price":0,"note":null}],"warning":null}]}. '
+                    "Верни только JSON без markdown и комментариев."
+                ),
+            },
+            {
+                "role": "user",
+                "text": json.dumps(
+                    {
+                        "input_payload": payload,
+                        "invalid_model_text": invalid_text,
+                    },
+                    ensure_ascii=False,
+                ),
+            },
+        ],
+    }
+    headers = {"Authorization": f"Api-Key {settings.yandex_api_key}"}
+    with httpx.Client(timeout=settings.yandex_timeout_seconds) as client:
+        response = client.post(YANDEX_URL, headers=headers, json=body)
+    if response.status_code >= 400:
+        body_excerpt = _safe_error_text(response.text)
+        logger.error("yandex_gpt_repair_failed status=%s body=%s", response.status_code, body_excerpt)
+        raise HTTPException(status_code=502, detail=f"YandexGPT repair {response.status_code}: {body_excerpt}")
+    data = response.json()
+    try:
+        text = data["result"]["alternatives"][0]["message"]["text"]
+    except (KeyError, IndexError, TypeError):
+        logger.error("yandex_gpt_repair_unexpected_response body=%s", _safe_error_text(json.dumps(data, ensure_ascii=False)))
+        raise HTTPException(status_code=502, detail="YandexGPT repair returned unexpected response format")
+    return _loads_model_json(text)
+
+
 def _parse_model_json_with_retry(raw_text: str, payload: dict) -> dict:
     try:
         return _loads_model_json(raw_text)
@@ -208,10 +302,75 @@ def _parse_model_json_with_retry(raw_text: str, payload: dict) -> dict:
                 "yandex_gpt_retry_invalid_json body=%s",
                 _safe_error_text(json.dumps(retry_data, ensure_ascii=False)),
             )
-            raise HTTPException(status_code=502, detail="YandexGPT returned invalid JSON twice")
+            try:
+                return _repair_json_via_model(payload, retry_text if "retry_text" in locals() else raw_text)
+            except (HTTPException, httpx.HTTPError, json.JSONDecodeError):
+                raise HTTPException(status_code=502, detail="YandexGPT returned invalid JSON after repair attempt")
 
 
-def _compute_result(model_result: dict, suppliers: list[Supplier]) -> tuple[list[dict], list[dict]]:
+def _build_item_comment(
+    item_name: str,
+    item_unit: str,
+    matches: list[dict],
+    allocation: list[dict],
+    suppliers: list[Supplier],
+    prices: list[Price],
+) -> str:
+    if not matches:
+        return "Не найдено совпадений в прайсах поставщиков"
+    supplier_name_by_id = {s.id: s.name for s in suppliers}
+    needle = _normalize_name(item_name)
+    order_unit = (item_unit or "").strip().lower()
+
+    alternatives_by_supplier: dict[int, list[dict]] = {}
+    for supplier in suppliers:
+        alternatives_by_supplier[supplier.id] = []
+    for price in prices:
+        if order_unit and not _units_compatible(order_unit, price.unit):
+            continue
+        hay = _normalize_name(price.name_in_price)
+        if not hay:
+            continue
+        if _name_match_score(needle, hay) >= 0.6:
+            alternatives_by_supplier.setdefault(price.supplier_id, []).append(
+                {
+                    "name_in_price": price.name_in_price,
+                    "price": round(float(price.price), 2),
+                }
+            )
+    for supplier_id in alternatives_by_supplier:
+        alternatives_by_supplier[supplier_id] = sorted(
+            alternatives_by_supplier[supplier_id], key=lambda x: float(x["price"])
+        )
+
+    selected = [a for a in allocation if float(a.get("quantity", 0)) > 0]
+    selected_parts: list[str] = []
+    for chosen in selected:
+        supplier_id = int(chosen["supplier_id"])
+        supplier_alternatives = alternatives_by_supplier.get(supplier_id, [])
+        if supplier_alternatives:
+            top = supplier_alternatives[0]
+            selected_parts.append(
+                f"{supplier_name_by_id.get(supplier_id, f'S{supplier_id}')}: "
+                f"{top.get('name_in_price', '—')} ({float(top.get('price', 0)):.2f} RUB)"
+            )
+    alternatives: list[str] = []
+    for supplier in suppliers:
+        supplier_id = supplier.id
+        supplier_alternatives = alternatives_by_supplier.get(supplier_id, [])
+        if supplier_alternatives:
+            alt_text = ", ".join(
+                f"{m.get('name_in_price', '—')} ({float(m.get('price', 0)):.2f})" for m in supplier_alternatives
+            )
+        else:
+            alt_text = "нет"
+        alternatives.append(f"{supplier_name_by_id.get(supplier_id, f'S{supplier_id}')}: {alt_text}")
+    selected_text = "; ".join(selected_parts) if selected_parts else "не выбран"
+    alternatives_text = " | ".join(alternatives) if alternatives else "нет"
+    return f"Выбранный товар: {selected_text}. Альтернативы: {alternatives_text}"
+
+
+def _compute_result(model_result: dict, suppliers: list[Supplier], prices: list[Price]) -> tuple[list[dict], list[dict]]:
     supplier_totals = {supplier.id: 0.0 for supplier in suppliers}
     result_items: list[dict] = []
     for item in model_result.get("items", []):
@@ -234,10 +393,18 @@ def _compute_result(model_result: dict, suppliers: list[Supplier]) -> tuple[list
                 "canonical_name": item.get("canonical_name"),
                 "quantity": round(quantity, 3),
                 "unit": item.get("unit"),
-                "warning": item.get("warning"),
+                "warning": item.get("warning") or ("Не найдено в прайсах поставщиков" if not sorted_matches else None),
                 "matches": sorted_matches,
                 "allocation": allocation,
                 "row_total": round(row_total, 2),
+                "comment": _build_item_comment(
+                    item.get("canonical_name", ""),
+                    item.get("unit", ""),
+                    sorted_matches,
+                    allocation,
+                    suppliers,
+                    prices,
+                ),
             }
         )
     totals = []
@@ -285,7 +452,12 @@ def run_match(db: Session, order_text: str) -> dict:
         }
         status = "degraded"
     model_result["items"] = _attach_db_fallback_matches(model_result["items"], prices, suppliers)
-    items, supplier_totals = _compute_result(model_result, suppliers)
+    items, supplier_totals = _compute_result(model_result, suppliers, prices)
+    not_found_in_suppliers = [
+        {"name": item["canonical_name"], "quantity": item["quantity"], "unit": item["unit"]}
+        for item in items
+        if not item.get("matches")
+    ]
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     logger.info(
         "match_request status=%s order_lines_total=%s order_lines_parsed=%s elapsed_ms=%s",
@@ -301,6 +473,7 @@ def run_match(db: Session, order_text: str) -> dict:
         "supplier_totals": supplier_totals,
         "suppliers": [{"id": s.id, "name": s.name} for s in suppliers],
         "unparsed_lines": unparsed_lines,
+        "not_found_in_suppliers": not_found_in_suppliers,
         "degraded_mode": degraded_mode,
         "degraded_reason": degraded_reason,
         "elapsed_ms": elapsed_ms,
