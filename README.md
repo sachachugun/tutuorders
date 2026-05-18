@@ -192,33 +192,65 @@ cd frontend
 npm run dev
 ```
 
-## Git: когда делать Pull Request
+## Git и автоматизация
 
-Схема работы:
+### Простой сценарий (скрипт на ПК)
 
-1. **Локально** — правки, проверка через `.\start-local.cmd`.
-2. **Коммит + push** в рабочую ветку (не в `main` напрямую), например:
-   ```powershell
-   git add .
-   git commit -m "описание изменений"
-   git push origin fix/match-resilience-and-ux
-   ```
-3. **Pull Request на GitHub** — когда блок изменений готов и вы хотите выкатить на VPS:
-   - откройте: `https://github.com/sachachugun/tutuorders/compare/main...ВАША_ВЕТКА`
-   - создайте PR → проверьте → **Merge pull request** в `main`
-4. **На VPS** — только **после merge** в `main`:
-   ```bash
-   cd /opt/tutuorders
-   git fetch origin
-   git checkout main
-   git pull origin main
-   ```
-   Затем пересборка (см. ниже).
+Из корня проекта:
 
-**Когда PR не обязателен:** если работаете одна и для быстрой проверки на VPS можно временно:
-`git checkout fix/match-resilience-and-ux && git pull` — но для «боевого» сайта лучше всегда через merge в `main`.
+```powershell
+.\scripts\publish.ps1 -Message "описание изменений"
+```
 
-**Почему на сайте не было изменений:** делали `git pull origin main`, а merge PR в `main` ещё не выполняли — в `main` оставался старый код.
+Скрипт: коммит (если есть изменения) → `git push` → открывает PR в браузере (или создаёт через `gh`, если установлен).
+
+Без коммита, только push:
+
+```powershell
+.\scripts\publish.ps1 -NoCommit
+```
+
+### Авто-PR на GitHub (после push)
+
+Workflow `.github/workflows/auto-pr.yml`: при каждом **push в любую ветку, кроме `main`**, GitHub **сам создаёт PR в `main`** (если его ещё нет).
+
+Вам остаётся: зайти на GitHub → **Merge pull request**.
+
+### Авто-деплой на VPS (после merge)
+
+Workflow `.github/workflows/deploy-vps.yml`: после **merge в `main`** (или push в `main`) деплой по SSH на VPS.
+
+**Один раз настройте secrets** в репозитории GitHub:  
+`Settings` → `Secrets and variables` → `Actions` → `New repository secret`:
+
+| Secret | Пример |
+|--------|--------|
+| `VPS_HOST` | IP сервера |
+| `VPS_USER` | `root` или ваш пользователь |
+| `VPS_SSH_KEY` | приватный SSH-ключ (полностью, с `BEGIN`/`END`) |
+| `VPS_PORT` | `22` (необязательно) |
+
+На VPS должен быть клон `/opt/tutuorders` и доступ `git pull` без пароля для этого ключа.
+
+Если secrets не настроены — деплой вручную (см. ниже).
+
+### Ручной сценарий (без автоматизации)
+
+1. Локально — `.\start-local.cmd`, проверка.
+2. `git commit` + `git push` в ветку (не в `main`).
+3. PR: https://github.com/sachachugun/tutuorders/compare/main...ВАША_ВЕТКА → **Merge**.
+4. На VPS — `git pull origin main` + пересборка (если нет auto-deploy).
+
+**Почему на сайте не было изменений:** делали `git pull origin main` до merge PR — в `main` был старый код.
+
+### Установить GitHub CLI (необязательно)
+
+```powershell
+winget install GitHub.cli
+gh auth login
+```
+
+Тогда `publish.ps1` создаёт PR из терминала без браузера.
 
 ## Деплой на VPS (после merge в main)
 

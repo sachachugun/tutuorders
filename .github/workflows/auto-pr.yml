@@ -1,0 +1,43 @@
+name: Auto Pull Request
+
+on:
+  push:
+    branches-ignore:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  open-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create PR to main (if missing)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          echo "Branch: $BRANCH"
+
+          EXISTING=$(gh pr list --base main --head "$BRANCH" --json number --jq 'length')
+          if [ "$EXISTING" != "0" ]; then
+            echo "PR already exists for $BRANCH"
+            gh pr list --base main --head "$BRANCH"
+            exit 0
+          fi
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "Update: $BRANCH" \
+            --body "$(cat <<'EOF'
+## Автоматический PR
+
+Создан при push в ветку. Проверьте изменения и нажмите **Merge pull request**.
+
+После merge в `main`:
+- если настроен workflow **Deploy VPS** — деплой на сервер выполнится автоматически;
+- иначе — вручную на VPS: `git pull origin main`, пересборка frontend, restart backend (см. README).
+EOF
+)"
