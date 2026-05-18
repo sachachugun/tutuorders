@@ -146,16 +146,34 @@ MVP-сервис для закупщика: загрузка прайсов по
 
 ## Локальный запуск
 
-Backend:
+**Быстро (Windows):** из корня проекта
 
-```bash
+```powershell
+.\start-local.cmd
+```
+
+или `.\start-local.ps1` (он вызывает `.cmd`)
+
+Откроются backend и frontend; сайт: http://localhost:5173
+
+**Первый раз:**
+
+```powershell
+cd backend
+py -m pip install -r requirements.txt
+py init_db.py
+cd ..\frontend
+npm install
+```
+
+**Вручную (2 терминала):**
+
+```powershell
 cd backend
 py -m uvicorn app.main:app --reload
 ```
 
-Frontend:
-
-```bash
+```powershell
 cd frontend
 npm run dev
 ```

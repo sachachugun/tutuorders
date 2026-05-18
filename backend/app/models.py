@@ -11,6 +11,7 @@ class Supplier(Base):
     name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     min_order_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0)
     updated_at: Mapped[str] = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+    last_price_upload_at: Mapped[str | None] = mapped_column(DateTime, nullable=True)
 
 
 class Price(Base):

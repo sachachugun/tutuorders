@@ -2,13 +2,23 @@ import { useState } from "react";
 import { matchOrder, parseOrder } from "../api";
 
 type Props = {
+  orderText: string;
+  parsePreview: any | null;
+  onOrderTextChange: (text: string) => void;
+  onParsePreviewChange: (preview: any | null) => void;
   onMatched: (result: any) => void;
+  onClear: () => void;
 };
 
-export function OrderPage({ onMatched }: Props) {
-  const [orderText, setOrderText] = useState("");
+export function OrderPage({
+  orderText,
+  parsePreview,
+  onOrderTextChange,
+  onParsePreviewChange,
+  onMatched,
+  onClear,
+}: Props) {
   const [error, setError] = useState("");
-  const [parsePreview, setParsePreview] = useState<any | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [isMatching, setIsMatching] = useState(false);
 
@@ -21,7 +31,7 @@ export function OrderPage({ onMatched }: Props) {
     setIsParsing(true);
     try {
       const preview = await parseOrder(orderText);
-      setParsePreview(preview);
+      onParsePreviewChange(preview);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось разобрать заказ");
     } finally {
@@ -35,7 +45,7 @@ export function OrderPage({ onMatched }: Props) {
       return;
     }
     if (!parsePreview?.parsed_count) {
-      setError("Сначала проверьте ввод кнопкой 'Проверить ввод'");
+      setError("Сначала проверьте ввод кнопкой «Проверить ввод»");
       return;
     }
     setError("");
@@ -56,17 +66,21 @@ export function OrderPage({ onMatched }: Props) {
     }
   };
 
+  const handleClear = () => {
+    onClear();
+    setError("");
+  };
+
   return (
     <section>
       <h2 className="section-title">Заказ</h2>
-      <p className="muted">Вставьте список строк в формате "Название количество единица".</p>
+      <p className="muted">
+        Вставьте список строк в формате «Название количество единица». При проверке: г и гр пересчитываются в кг, л — в мл.
+      </p>
       <textarea
         className="order-textarea"
         value={orderText}
-        onChange={(e) => {
-          setOrderText(e.target.value);
-          setParsePreview(null);
-        }}
+        onChange={(e) => onOrderTextChange(e.target.value)}
         rows={14}
         placeholder="Брокколи 3 кг"
         disabled={isMatching || isParsing}
@@ -77,6 +91,14 @@ export function OrderPage({ onMatched }: Props) {
         </button>
         <button className="btn btn-primary" onClick={onSubmit} disabled={isMatching || isParsing}>
           {isMatching ? "Сопоставление..." : "Сопоставить"}
+        </button>
+        <button
+          type="button"
+          className="btn"
+          onClick={handleClear}
+          disabled={isMatching || isParsing || (!orderText.trim() && !parsePreview)}
+        >
+          Очистить
         </button>
       </div>
       {parsePreview && (
@@ -102,6 +124,7 @@ export function OrderPage({ onMatched }: Props) {
                     <th>Название</th>
                     <th>Количество</th>
                     <th>Ед.</th>
+                    <th>Пересчёт</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -110,6 +133,7 @@ export function OrderPage({ onMatched }: Props) {
                       <td>{item.name}</td>
                       <td>{Number(item.quantity).toFixed(3)}</td>
                       <td>{item.unit}</td>
+                      <td className="muted">{item.unit_note || "—"}</td>
                     </tr>
                   ))}
                 </tbody>

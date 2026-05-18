@@ -327,6 +327,30 @@ textarea:focus {
   padding-left: 18px;
 }
 
+.result-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.result-header-row .section-title {
+  margin: 0;
+}
+
+.upload-just-now {
+  margin: 8px 0 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #9fd4a8;
+  background: #eef9f0;
+  color: #1f6b2f;
+  font-size: 14px;
+  font-weight: 600;
+}
+
 .muted {
   color: var(--black-30);
 }

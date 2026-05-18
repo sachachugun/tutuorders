@@ -8,6 +8,8 @@ type Screen = "prices" | "order" | "result";
 export function App() {
   const [screen, setScreen] = useState<Screen>("prices");
   const [matchResult, setMatchResult] = useState<any>(null);
+  const [orderText, setOrderText] = useState("");
+  const [orderParsePreview, setOrderParsePreview] = useState<any | null>(null);
 
   return (
     <main className="container">
@@ -27,10 +29,25 @@ export function App() {
 
       <section className="panel">
         {screen === "prices" && <PricesPage />}
-        {screen === "order" && <OrderPage onMatched={(result) => {
-          setMatchResult(result);
-          setScreen("result");
-        }} />}
+        {screen === "order" && (
+          <OrderPage
+            orderText={orderText}
+            parsePreview={orderParsePreview}
+            onOrderTextChange={(text) => {
+              setOrderText(text);
+              setOrderParsePreview(null);
+            }}
+            onParsePreviewChange={setOrderParsePreview}
+            onMatched={(result) => {
+              setMatchResult(result);
+              setScreen("result");
+            }}
+            onClear={() => {
+              setOrderText("");
+              setOrderParsePreview(null);
+            }}
+          />
+        )}
         {screen === "result" && <ResultPage result={matchResult} />}
       </section>
     </main>

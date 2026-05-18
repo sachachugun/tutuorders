@@ -160,5 +160,5 @@ def replace_supplier_prices(db: Session, supplier_id: int, normalized_rows: list
         )
     supplier = db.get(Supplier, supplier_id)
     if supplier:
-        supplier.updated_at = datetime.now(timezone.utc)
+        supplier.last_price_upload_at = datetime.now(timezone.utc)
     db.commit()

@@ -1,0 +1,51 @@
+---
+description: Локальный запуск tutuorders (Windows)
+alwaysApply: true
+---
+
+# tutuorders — локальная разработка
+
+Корень проекта: `C:\Users\chugi\OneDrive\Документы\папочка рабочая\Документы\BD\AI\Cursor`
+
+## Быстрый запуск (одна команда)
+
+Из корня проекта в PowerShell:
+
+```powershell
+.\start-local.cmd
+```
+
+(или `.\start-local.ps1` — то же самое)
+
+Откроются 2 окна: backend и frontend. Сайт: **http://localhost:5173** (API проксируется на :8000).
+
+## Ручной запуск (2 терминала)
+
+**Терминал 1 — backend:**
+```powershell
+cd backend
+py -m uvicorn app.main:app --reload
+```
+
+**Терминал 2 — frontend:**
+```powershell
+cd frontend
+npm run dev
+```
+
+## Первый раз на машине
+
+```powershell
+cd backend
+py -m pip install -r requirements.txt
+py init_db.py
+
+cd ..\frontend
+npm install
+```
+
+Файл `backend/.env` — ключи YandexGPT для сопоставления с ИИ (без них работает fallback без ИИ). `AUTH_ENABLED=false` по умолчанию — вход на локалке не нужен.
+
+## Продакшн (не путать)
+
+VPS: `/opt/tutuorders`, URL `:3001`, `systemctl restart tutuorders-backend`. Старый проект на VPS не трогать.

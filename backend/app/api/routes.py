@@ -46,7 +46,7 @@ def list_suppliers(db: Session = Depends(get_db), _: str = Depends(require_auth)
                 "name": supplier.name,
                 "min_order_amount": round(float(supplier.min_order_amount), 2),
                 "price_items_count": int(count),
-                "last_price_upload_at": supplier.updated_at.isoformat() if supplier.updated_at else None,
+                "last_price_upload_at": supplier.last_price_upload_at.isoformat() if supplier.last_price_upload_at else None,
             }
         )
     return {"items": items}
@@ -87,7 +87,7 @@ async def upload_price(
         "saved_rows": len(normalized_rows),
         "skipped_rows": sum(stats.values()),
         "skips": stats,
-        "last_price_upload_at": supplier.updated_at.isoformat() if supplier.updated_at else None,
+        "last_price_upload_at": supplier.last_price_upload_at.isoformat() if supplier.last_price_upload_at else None,
         "filename": file.filename,
     }
 
@@ -127,7 +127,7 @@ def update_supplier(
         "name": supplier.name,
         "min_order_amount": round(float(supplier.min_order_amount), 2),
         "price_items_count": int(count),
-        "last_price_upload_at": supplier.updated_at.isoformat() if supplier.updated_at else None,
+        "last_price_upload_at": supplier.last_price_upload_at.isoformat() if supplier.last_price_upload_at else None,
     }
 
 

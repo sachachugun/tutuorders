@@ -4,7 +4,8 @@ CREATE TABLE IF NOT EXISTS suppliers (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
   min_order_amount REAL NOT NULL DEFAULT 0 CHECK (min_order_amount >= 0),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_price_upload_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS prices (
