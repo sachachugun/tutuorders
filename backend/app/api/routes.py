@@ -8,7 +8,16 @@ from app.auth import create_access_token, require_auth, verify_login
 from app.db import get_db
 from app.models import Price, Setting, Supplier
 from app.parsers.order_parser import parse_order_text
-from app.schemas import LoginRequest, MatchRequest, SettingsOut, SettingsUpdateRequest, SupplierUpdateRequest, SuppliersResponse
+from app.schemas import (
+    LoginRequest,
+    MatchRequest,
+    SettingsOut,
+    SettingsUpdateRequest,
+    SupplierCreateRequest,
+    SupplierOut,
+    SupplierUpdateRequest,
+    SuppliersResponse,
+)
 from app.services.export_service import build_export_xlsx
 from app.services.match_service import run_match
 from app.services.price_import_service import normalize_price_rows, parse_price_file, replace_supplier_prices
@@ -39,17 +48,40 @@ def list_suppliers(db: Session = Depends(get_db), _: str = Depends(require_auth)
     suppliers = db.scalars(select(Supplier).order_by(Supplier.id)).all()
     items = []
     for supplier in suppliers:
-        count = db.scalar(select(func.count(Price.id)).where(Price.supplier_id == supplier.id)) or 0
-        items.append(
-            {
-                "id": supplier.id,
-                "name": supplier.name,
-                "min_order_amount": round(float(supplier.min_order_amount), 2),
-                "price_items_count": int(count),
-                "last_price_upload_at": supplier.last_price_upload_at.isoformat() if supplier.last_price_upload_at else None,
-            }
-        )
+        items.append(_supplier_to_out(db, supplier))
     return {"items": items}
+
+
+def _supplier_to_out(db: Session, supplier: Supplier) -> dict:
+    count = db.scalar(select(func.count(Price.id)).where(Price.supplier_id == supplier.id)) or 0
+    return {
+        "id": supplier.id,
+        "name": supplier.name,
+        "min_order_amount": round(float(supplier.min_order_amount), 2),
+        "price_items_count": int(count),
+        "last_price_upload_at": supplier.last_price_upload_at.isoformat() if supplier.last_price_upload_at else None,
+    }
+
+
+@router.post("/suppliers", response_model=SupplierOut)
+def create_supplier(
+    payload: SupplierCreateRequest,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_auth),
+):
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Укажите имя поставщика")
+    existing = db.scalar(select(Supplier).where(Supplier.name == name))
+    if existing:
+        raise HTTPException(status_code=400, detail="Поставщик с таким именем уже существует")
+
+    next_id = int(db.scalar(select(func.max(Supplier.id))) or 0) + 1
+    supplier = Supplier(id=next_id, name=name, min_order_amount=float(payload.min_order_amount))
+    db.add(supplier)
+    db.commit()
+    db.refresh(supplier)
+    return _supplier_to_out(db, supplier)
 
 
 @router.get("/prices/format-help")
@@ -121,14 +153,8 @@ def update_supplier(
     supplier.name = payload.name.strip()
     supplier.min_order_amount = float(payload.min_order_amount)
     db.commit()
-    count = db.scalar(select(func.count(Price.id)).where(Price.supplier_id == supplier.id)) or 0
-    return {
-        "id": supplier.id,
-        "name": supplier.name,
-        "min_order_amount": round(float(supplier.min_order_amount), 2),
-        "price_items_count": int(count),
-        "last_price_upload_at": supplier.last_price_upload_at.isoformat() if supplier.last_price_upload_at else None,
-    }
+    db.refresh(supplier)
+    return _supplier_to_out(db, supplier)
 
 
 @router.post("/export")

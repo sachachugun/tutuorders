@@ -10,13 +10,19 @@ def build_export_xlsx(payload: dict) -> bytes:
     items = payload.get("items", [])
     supplier_names = payload.get("supplier_names", {})
 
-    supplier_ids: list[int] = [int(key) for key in supplier_names.keys()]
+    supplier_ids: list[int] = []
+    raw_ids = payload.get("supplier_ids")
+    if raw_ids:
+        supplier_ids = [int(value) for value in raw_ids]
+    elif supplier_names:
+        supplier_ids = sorted(int(key) for key in supplier_names.keys())
     if not supplier_ids:
         for item in items:
             for match in item.get("matches", []):
                 supplier_id = int(match["supplier_id"])
                 if supplier_id not in supplier_ids:
                     supplier_ids.append(supplier_id)
+        supplier_ids.sort()
 
     header = ["Продукт", "Ед.", "Кол-во к заказу"]
     for supplier_id in supplier_ids:

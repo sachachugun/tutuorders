@@ -13,6 +13,11 @@ class SuppliersResponse(BaseModel):
     items: list[SupplierOut]
 
 
+class SupplierCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    min_order_amount: float = Field(ge=0, default=0)
+
+
 class SupplierUpdateRequest(BaseModel):
     name: str
     min_order_amount: float

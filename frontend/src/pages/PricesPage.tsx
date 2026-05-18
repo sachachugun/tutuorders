@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getPriceFormatHelp, getSuppliers, updateSupplier, uploadPrice } from "../api";
+import { createSupplier, getPriceFormatHelp, getSuppliers, updateSupplier, uploadPrice } from "../api";
 
 function formatUploadDate(iso: string | null | undefined): string | null {
   if (!iso) return null;
@@ -16,6 +16,9 @@ export function PricesPage() {
   const [lastUploadFlash, setLastUploadFlash] = useState<
     Record<number, { at: number; fileName: string; savedRows: number }>
   >({});
+  const [newSupplierName, setNewSupplierName] = useState("");
+  const [newSupplierMin, setNewSupplierMin] = useState("0");
+  const [isCreating, setIsCreating] = useState(false);
 
   const loadSuppliers = () => {
     getSuppliers()
@@ -57,6 +60,27 @@ export function PricesPage() {
     }
   };
 
+  const onCreateSupplier = async () => {
+    const name = newSupplierName.trim();
+    if (!name) {
+      setMessage("Укажите имя нового поставщика");
+      return;
+    }
+    setMessage("");
+    setIsCreating(true);
+    try {
+      await createSupplier({ name, min_order_amount: Number(newSupplierMin) || 0 });
+      setNewSupplierName("");
+      setNewSupplierMin("0");
+      setMessage(`Поставщик «${name}» добавлен`);
+      loadSuppliers();
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Не удалось добавить поставщика");
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
   const onSave = async (supplierId: number) => {
     const draft = drafts[supplierId];
     if (!draft) return;
@@ -77,6 +101,34 @@ export function PricesPage() {
     <section>
       <h2 className="section-title">Прайсы поставщиков</h2>
       {message && <p className="status-message">{message}</p>}
+      <article className="card add-supplier-card">
+        <h3 className="card-title">Новый поставщик</h3>
+        <div className="add-supplier-row">
+          <label className="field">
+            <span>Имя</span>
+            <input
+              value={newSupplierName}
+              onChange={(e) => setNewSupplierName(e.target.value)}
+              placeholder="Название поставщика"
+              disabled={isCreating}
+            />
+          </label>
+          <label className="field">
+            <span>Минимальный заказ, RUB</span>
+            <input
+              type="number"
+              step="0.01"
+              value={newSupplierMin}
+              onChange={(e) => setNewSupplierMin(e.target.value)}
+              disabled={isCreating}
+            />
+          </label>
+          <button type="button" className="btn btn-primary" onClick={() => void onCreateSupplier()} disabled={isCreating}>
+            {isCreating ? "Добавление..." : "Добавить поставщика"}
+          </button>
+        </div>
+        <p className="muted">После добавления загрузите прайс — в результате и Excel появятся колонки для этого поставщика.</p>
+      </article>
       {formatHelp && (
         <div className="format-help">
           <strong>Требования к файлам прайсов</strong>

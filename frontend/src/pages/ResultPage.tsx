@@ -19,18 +19,10 @@ export function ResultPage({ result }: Props) {
     }
     return mapping;
   }, [result]);
-  const supplierIds = useMemo(() => {
-    const ids: number[] = (result.suppliers || []).map((s: any) => s.id);
-    for (const item of items) {
-      for (const match of item.matches || []) {
-        if (!ids.includes(match.supplier_id)) ids.push(match.supplier_id);
-      }
-      for (const allocation of item.allocation || []) {
-        if (!ids.includes(allocation.supplier_id)) ids.push(allocation.supplier_id);
-      }
-    }
-    return ids;
-  }, [items]);
+  const supplierIds = useMemo(
+    () => (result.suppliers || []).map((s: any) => s.id).sort((a: number, b: number) => a - b),
+    [result]
+  );
   const totalPositions = items.length;
   const notFound = result.not_found_in_suppliers || [];
   const isDegraded = Boolean(result.degraded_mode);
@@ -50,7 +42,12 @@ export function ResultPage({ result }: Props) {
     for (const supplierId of supplierIds) {
       supplier_name_payload[String(supplierId)] = supplierNames[supplierId] || `S${supplierId}`;
     }
-    const blob = await exportXlsx({ currency: "RUB", items, supplier_names: supplier_name_payload });
+    const blob = await exportXlsx({
+      currency: "RUB",
+      items,
+      supplier_ids: supplierIds,
+      supplier_names: supplier_name_payload,
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -101,7 +98,10 @@ export function ResultPage({ result }: Props) {
               <th>Ед.</th>
               <th>Кол-во к заказу</th>
               {supplierIds.map((id) => (
-                <th key={`alloc-${id}`}>Кол-во {supplierNames[id] || `S${id}`}</th>
+                <th key={`price-${id}`}>Цена {supplierNames[id] || `S${id}`}</th>
+              ))}
+              {supplierIds.map((id) => (
+                <th key={`qty-${id}`}>Кол-во {supplierNames[id] || `S${id}`}</th>
               ))}
               <th>Сумма, RUB</th>
               <th>Комментарий</th>
@@ -113,7 +113,10 @@ export function ResultPage({ result }: Props) {
               <td />
               <td>{totalPositions}</td>
               {supplierIds.map((supplierId) => (
-                <td key={`sum-${supplierId}`}>{Number(supplierTotals[supplierId] || 0).toFixed(2)}</td>
+                <td key={`sum-price-${supplierId}`} />
+              ))}
+              {supplierIds.map((supplierId) => (
+                <td key={`sum-qty-${supplierId}`}>{Number(supplierTotals[supplierId] || 0).toFixed(2)}</td>
               ))}
               <td>{Number(items.reduce((acc: number, item: any) => acc + Number(item.row_total || 0), 0)).toFixed(2)}</td>
               <td />
@@ -124,8 +127,18 @@ export function ResultPage({ result }: Props) {
                 <td>{item.unit}</td>
                 <td>{Number(item.quantity).toFixed(3)}</td>
                 {supplierIds.map((supplierId) => {
+                  const match = (item.matches || []).find((m: any) => m.supplier_id === supplierId);
+                  return (
+                    <td key={`${idx}-price-${supplierId}`}>
+                      {match ? Number(match.price || 0).toFixed(2) : "—"}
+                    </td>
+                  );
+                })}
+                {supplierIds.map((supplierId) => {
                   const allocation = (item.allocation || []).find((a: any) => a.supplier_id === supplierId);
-                  return <td key={`${idx}-${supplierId}`}>{Number(allocation?.quantity || 0).toFixed(3)}</td>;
+                  return (
+                    <td key={`${idx}-qty-${supplierId}`}>{Number(allocation?.quantity || 0).toFixed(3)}</td>
+                  );
                 })}
                 <td>{Number(item.row_total || 0).toFixed(2)}</td>
                 <td className="comment-cell">{item.comment || ""}</td>

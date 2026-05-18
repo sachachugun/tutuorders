@@ -78,6 +78,19 @@ export async function uploadPrice(supplierId: number, file: File) {
   return response.json();
 }
 
+export async function createSupplier(payload: { name: string; min_order_amount: number }) {
+  const response = await apiFetch("/api/suppliers", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Не удалось добавить поставщика");
+  }
+  return response.json();
+}
+
 export async function updateSupplier(supplierId: number, payload: { name: string; min_order_amount: number }) {
   const response = await apiFetch(`/api/suppliers/${supplierId}`, {
     method: "PUT",
