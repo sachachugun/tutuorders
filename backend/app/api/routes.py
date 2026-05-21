@@ -854,8 +854,18 @@ def create_procurement_batch(
 
 @router.get("/procurement/batches")
 def list_procurement_batches(db: Session = Depends(get_db), _: str = Depends(require_auth)):
-    batches = db.scalars(select(ProcurementBatch).order_by(ProcurementBatch.id.desc())).all()
-    return {"items": [batch_to_summary(db, row) for row in batches]}
+    try:
+        batches = db.scalars(select(ProcurementBatch).order_by(ProcurementBatch.id.desc())).all()
+        return {"items": [batch_to_summary(db, row) for row in batches]}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Таблицы плана закупки не найдены. На сервере выполните миграции: "
+                "cd /opt/tutuorders/backend && source .venv/bin/activate && "
+                "python -c \"from app.db_migrate import run_pending_migrations; run_pending_migrations()\""
+            ),
+        ) from exc
 
 
 @router.get("/procurement/batches/{batch_id}", response_model=ProcurementBatchOut)

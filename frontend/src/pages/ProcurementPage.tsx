@@ -128,7 +128,11 @@ export function ProcurementPage() {
           setBatchId(items[0].id);
         }
       })
-      .catch(() => setBatches([]));
+      .catch((e) => {
+        setBatches([]);
+        setBatchId(null);
+        setMessage(e instanceof Error ? e.message : "Не удалось загрузить планы закупки");
+      });
   };
 
   const loadRefs = () => {
@@ -142,10 +146,12 @@ export function ProcurementPage() {
         if (!locationId && locs.length) setLocationId(locs[0].id);
         if (!departmentId && deps.length) setDepartmentId(deps[0].id);
       })
-      .catch(() => {
+      .catch((e) => {
         setLocations([]);
         setDepartments([]);
         setProducts([]);
+        const err = e instanceof Error ? e.message : "Не удалось загрузить справочники";
+        setMessage((prev) => (prev ? `${prev}. ${err}` : err));
       });
   };
 
@@ -541,7 +547,11 @@ export function ProcurementPage() {
   return (
     <section className="page-stack">
       <h2 className="section-title">План закупки</h2>
-      {message && <p className="status-message">{message}</p>}
+      {message && (
+        <p className={`status-message${message.includes("Не удалось") || message.includes("Требуется") ? " error" : ""}`}>
+          {message}
+        </p>
+      )}
 
       <div className="procurement-wizard-tabs">
         <button
@@ -606,6 +616,9 @@ export function ProcurementPage() {
           <label className="field field-inline procurement-batch-field">
             <span>План</span>
             <select value={batchId ?? ""} onChange={(e) => setBatchId(Number(e.target.value) || null)}>
+              <option value="" disabled>
+                {batches.length ? "— выберите план —" : "— нет планов —"}
+              </option>
               {batches.map((b) => (
                 <option key={b.id} value={b.id}>
                   #{b.id} {b.title}
@@ -626,6 +639,15 @@ export function ProcurementPage() {
             </p>
           )}
         </div>
+        {!batchId && !batches.length && (
+          <p className="muted procurement-batch-hint">
+            Планов пока нет или не удалось загрузить список — нажмите «Новый план». Если сверху красное сообщение об
+            ошибке, на сервере нужны миграции БД (см. docs/deploy-vps.md).
+          </p>
+        )}
+        {!batchId && batches.length > 0 && (
+          <p className="muted procurement-batch-hint">Выберите план в списке или создайте новый.</p>
+        )}
       </article>
 
       {batchId && wizardStep === "demand" && (

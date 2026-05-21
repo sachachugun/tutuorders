@@ -47,6 +47,16 @@ sudo nginx -t && sudo systemctl reload nginx
 
 В браузере: **Ctrl+F5**.
 
+## Если на проде пустой «План закупки»
+
+1. Убедитесь, что в `main` смержен PR с variant B и на VPS `git log -1` показывает свежий коммит.
+2. Выполните миграции (команда выше) и `sudo systemctl restart tutuorders-backend`.
+3. Пересоберите frontend: `npm run build` + reload nginx, в браузере **Ctrl+F5**.
+4. В DevTools → Network откройте `GET /api/procurement/batches`:
+   - **503** — не применены миграции;
+   - **401** — включён `AUTH_ENABLED`, нужен вход / токен;
+   - **404** — старый backend без новых роутов.
+
 ## Проверка после деплоя
 
 | Проверка | Ожидание |
