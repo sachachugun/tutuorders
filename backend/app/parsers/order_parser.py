@@ -1,14 +1,49 @@
 import re
 
-LINE_RE = re.compile(r"^\s*(?P<name>.+?)\s+(?P<quantity>\d+(?:[.,]\d+)?)\s*(?P<unit>кг|г|гр|л|мл)\s*$", re.IGNORECASE)
+LINE_RE = re.compile(
+    r"^\s*(?P<name>.+?)\s+(?P<quantity>\d+(?:[.,]\d+)?)\s*(?P<unit>кг|kg|г|гр|л|l|мл|ml)\s*$",
+    re.IGNORECASE,
+)
+LINE_PAREN_RE = re.compile(
+    r"^\s*(?P<name>.+?)\s*\(\s*(?P<quantity>\d+(?:[.,]\d+)?)\s*(?P<unit>кг|kg|г|гр|л|l|мл|ml)\s*\)\s*$",
+    re.IGNORECASE,
+)
 
 UNIT_MAP = {
     "кг": "кг",
+    "kg": "кг",
     "г": "г",
     "гр": "г",
     "л": "л",
+    "l": "л",
     "мл": "мл",
+    "ml": "мл",
 }
+
+
+def _parse_line_match(match: re.Match[str]) -> dict:
+    quantity = float(match.group("quantity").replace(",", "."))
+    clean_name = _clean_name(match.group("name"))
+    unit_key = match.group("unit").lower()
+    unit = UNIT_MAP.get(unit_key, "кг")
+    normalized_qty, normalized_unit, unit_note = _normalize_to_base_units(quantity, unit)
+    return {
+        "name": clean_name,
+        "quantity": normalized_qty,
+        "unit": normalized_unit,
+        "unit_note": unit_note,
+    }
+
+
+def parse_single_line(line: str) -> dict | None:
+    text = (line or "").strip()
+    if not text:
+        return None
+    for pattern in (LINE_RE, LINE_PAREN_RE):
+        match = pattern.match(text)
+        if match:
+            return _parse_line_match(match)
+    return None
 
 
 def parse_order_text(order_text: str) -> tuple[list[dict], list[str]]:
@@ -19,22 +54,11 @@ def parse_order_text(order_text: str) -> tuple[list[dict], list[str]]:
         line = raw_line.strip()
         if not line:
             continue
-        match = LINE_RE.match(line)
-        if not match:
+        item = parse_single_line(line)
+        if item:
+            parsed.append(item)
+        else:
             unparsed.append(line)
-            continue
-        quantity = float(match.group("quantity").replace(",", "."))
-        clean_name = _clean_name(match.group("name"))
-        unit = UNIT_MAP[match.group("unit").lower()]
-        normalized_qty, normalized_unit, unit_note = _normalize_to_base_units(quantity, unit)
-        parsed.append(
-            {
-                "name": clean_name,
-                "quantity": normalized_qty,
-                "unit": normalized_unit,
-                "unit_note": unit_note,
-            }
-        )
 
     return parsed, unparsed
 

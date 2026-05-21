@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
-from app.models import Price, Supplier
+from app.models import CanonicalProduct, Price, Supplier, SupplierSku
 
 MAX_ROWS = 500
 ALLOWED_UNITS = {"кг", "г", "л", "мл"}
@@ -137,6 +137,75 @@ def normalize_price_rows(rows: list[dict]) -> tuple[list[dict], dict]:
     return normalized, stats
 
 
+def _price_name_key(name: str) -> str:
+    """Ключ для сопоставления: без лишних пробелов, без учёта регистра."""
+    return " ".join(str(name or "").strip().split()).casefold()
+
+
+def _build_prices_lookup(prices: list[Price]) -> tuple[dict[str, Price], dict[str, Price]]:
+    exact: dict[str, Price] = {}
+    normalized: dict[str, Price] = {}
+    for row in prices:
+        exact[row.name_in_price] = row
+        norm = _price_name_key(row.name_in_price)
+        if norm not in normalized:
+            normalized[norm] = row
+    return exact, normalized
+
+
+def _find_price_for_sku_name(
+    sku_name: str,
+    exact: dict[str, Price],
+    normalized: dict[str, Price],
+) -> Price | None:
+    if not sku_name:
+        return None
+    hit = exact.get(sku_name)
+    if hit:
+        return hit
+    return normalized.get(_price_name_key(sku_name))
+
+
+def relink_supplier_skus_from_prices(db: Session, supplier_id: int) -> dict:
+    """Привязать SKU к строкам прайса по названию (точное или нормализованное совпадение)."""
+    prices = db.query(Price).filter(Price.supplier_id == supplier_id).all()
+    exact, normalized = _build_prices_lookup(prices)
+    skus = db.query(SupplierSku).filter(SupplierSku.supplier_id == supplier_id).all()
+    relinked = 0
+    broken = 0
+    broken_items: list[dict] = []
+    affected_product_ids: set[int] = set()
+    for sku in skus:
+        matched = _find_price_for_sku_name(sku.name_in_price, exact, normalized)
+        if matched:
+            sku.price_id = matched.id
+            sku.unit = matched.unit
+            sku.price = float(matched.price)
+            relinked += 1
+        else:
+            sku.price_id = None
+            if sku.name_in_price:
+                broken += 1
+                pid = int(sku.canonical_product_id)
+                affected_product_ids.add(pid)
+                product = db.get(CanonicalProduct, pid)
+                broken_items.append(
+                    {
+                        "product_id": pid,
+                        "product_name": product.name if product else f"#{pid}",
+                        "name_in_price": sku.name_in_price,
+                    }
+                )
+    broken_items.sort(key=lambda row: (row["product_name"].lower(), row["name_in_price"].lower()))
+    return {
+        "relinked_count": relinked,
+        "broken_sku_links_count": broken,
+        "affected_products_count": len(affected_product_ids),
+        "broken_items": broken_items,
+        "price_rows_count": len(prices),
+    }
+
+
 def _is_section_row(name: str, raw_unit: str) -> bool:
     if raw_unit.strip():
         return False
@@ -147,7 +216,10 @@ def _is_section_row(name: str, raw_unit: str) -> bool:
     return len(normalized.split()) <= 3 and normalized.upper() == normalized
 
 
-def replace_supplier_prices(db: Session, supplier_id: int, normalized_rows: list[dict]) -> None:
+def replace_supplier_prices(db: Session, supplier_id: int, normalized_rows: list[dict]) -> dict:
+    old_prices = db.query(Price).filter(Price.supplier_id == supplier_id).all()
+    old_names = {row.name_in_price for row in old_prices}
+
     db.execute(delete(Price).where(Price.supplier_id == supplier_id))
     for row in normalized_rows:
         db.add(
@@ -158,7 +230,24 @@ def replace_supplier_prices(db: Session, supplier_id: int, normalized_rows: list
                 price=row["price"],
             )
         )
+    # autoflush=False в Session — без flush новые prices не видны в query, все SKU обнулялись.
+    db.flush()
+
     supplier = db.get(Supplier, supplier_id)
     if supplier:
         supplier.last_price_upload_at = datetime.now(timezone.utc)
+
+    prices = db.query(Price).filter(Price.supplier_id == supplier_id).all()
+    new_names = {row.name_in_price for row in prices}
+    new_price_items_count = len(new_names - old_names)
+
+    relink_stats = relink_supplier_skus_from_prices(db, supplier_id)
+
     db.commit()
+    return {
+        "new_price_items_count": new_price_items_count,
+        "broken_sku_links_count": relink_stats["broken_sku_links_count"],
+        "affected_products_count": relink_stats["affected_products_count"],
+        "relinked_count": relink_stats["relinked_count"],
+        "broken_items": relink_stats["broken_items"],
+    }

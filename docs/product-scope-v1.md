@@ -1,28 +1,29 @@
-# Product Scope v1.0 (MVP)
+# Product Scope v1 — tutuorders (MVP)
 
-## Roles
-- `admin`: full access to settings, uploads, users, and audit.
-- `lead`: read access to dashboards, calls, and call cards.
-- `manager`: read access to own calls and own score details.
+> Раньше в этом файле был текст **другого проекта** (звонки/дашборд).  
+> Актуальное состояние **локальной** версии: [`current-local-state.md`](current-local-state.md)
 
-## Screens
-- `auth/login`: email/password login.
-- `dashboard`: KPI summary, trends, distributions, and filters.
-- `calls/list`: calls table with filter panel.
-- `calls/card`: transcript + score breakdown.
-- `uploads/list`: upload history and processing statuses.
-- `uploads/new`: manual CSV/audio upload.
-- `settings/score-template`: scoring template builder (sections/questions/answers/weights).
-- `settings/users`: user roles management (admin only).
-- `audit/logs`: template and settings change history.
+## Роль пользователя
 
-## Access matrix
-- `admin`: all screens.
-- `lead`: dashboard, calls/list, calls/card, uploads/list.
-- `manager`: calls/list, calls/card (own only).
+Один закупщик (без ролей в UI). Опционально app-auth на проде.
 
-## Explicitly out of scope for v1
-- CRM or telephony integrations.
-- Automated scheduled imports.
-- Multi-tenant organizations.
-- Advanced AI coaching recommendations.
+## Экраны (текущий MVP)
+
+| Вкладка | Назначение |
+|---------|------------|
+| Прайсы | поставщики, загрузка прайсов, добавление поставщика |
+| Заказ | ввод списка, проверка, сопоставление |
+| Результат | таблица, xlsx |
+
+## В scope v1
+
+- Неограниченное число поставщиков (не только 2).
+- Прайс до 500 строк, формат A/B/C.
+- Сопоставление YandexGPT + fallback без ИИ.
+- Экспорт Excel с колонками по каждому поставщику.
+
+## Out of scope v1
+
+- Локации, кухня/бар, MILP (см. variant B).
+- История заказов, интеграции с 1С/почтой.
+- Личный кабинет поставщика.

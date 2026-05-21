@@ -72,7 +72,7 @@ export function OrderPage({
   };
 
   return (
-    <section>
+    <section className="page-stack">
       <h2 className="section-title">Заказ</h2>
       <p className="muted">
         Вставьте список строк в формате «Название количество единица». При проверке: г и гр пересчитываются в кг, л — в мл.
