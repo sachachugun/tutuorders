@@ -1,6 +1,8 @@
 import sqlite3
 from pathlib import Path
 
+from app.db_migrate import run_pending_migrations
+
 
 def main() -> None:
     root = Path(__file__).parent
@@ -17,6 +19,14 @@ def main() -> None:
         cur.executescript(m1.read_text(encoding="utf-8"))
         cur.executescript(m2.read_text(encoding="utf-8"))
         conn.commit()
+    finally:
+        conn.close()
+
+    run_pending_migrations()
+
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.cursor()
 
         suppliers = cur.execute(
             "SELECT id, name, min_order_amount FROM suppliers ORDER BY id"
@@ -24,6 +34,13 @@ def main() -> None:
         print(f"DB initialized: {db_path}")
         print(f"Suppliers count: {len(suppliers)}")
         for row in suppliers:
+            print(row)
+
+        locations = cur.execute(
+            "SELECT id, code, name FROM locations ORDER BY sort_order, id"
+        ).fetchall()
+        print(f"Locations count: {len(locations)}")
+        for row in locations:
             print(row)
     finally:
         conn.close()

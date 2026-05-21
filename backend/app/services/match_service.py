@@ -82,6 +82,55 @@ def _tokenize_name(value: str) -> set[str]:
     return {token for token in tokens if len(token) >= 2}
 
 
+_RU_STEM_SUFFIXES = (
+    "ами",
+    "ями",
+    "ого",
+    "ому",
+    "ием",
+    "иях",
+    "иям",
+    "ов",
+    "ев",
+    "ей",
+    "ий",
+    "ый",
+    "ой",
+    "ая",
+    "ые",
+    "ии",
+    "и",
+    "ы",
+    "а",
+    "о",
+    "е",
+    "я",
+    "ь",
+)
+
+
+def _stem_ru_token(token: str) -> str:
+    """Light Russian plural/suffix normalization (яблоко ≈ яблоки)."""
+    word = (token or "").lower()
+    if len(word) < 5:
+        return word
+    # One ending only — avoids «яблоки» → «ябл» via «ки»
+    if word[-1] in "оеыиаяь":
+        root = word[:-1]
+        if len(root) >= 4:
+            return root
+    for suffix in _RU_STEM_SUFFIXES:
+        if len(suffix) >= 2 and word.endswith(suffix):
+            root = word[: -len(suffix)]
+            if len(root) >= 4:
+                return root
+    return word
+
+
+def _stem_token_set(tokens: set[str]) -> set[str]:
+    return {_stem_ru_token(token) for token in tokens}
+
+
 def _units_compatible(order_unit: str, candidate_unit: str) -> bool:
     order_group = UNIT_GROUP.get((order_unit or "").strip().lower())
     candidate_group = UNIT_GROUP.get((candidate_unit or "").strip().lower())
@@ -101,11 +150,23 @@ def _name_match_score(needle: str, hay: str) -> float:
     hay_tokens = _tokenize_name(hay)
     if not needle_tokens or not hay_tokens:
         return 0.0
+
     intersection = needle_tokens & hay_tokens
-    if not intersection:
-        return 0.0
     union = needle_tokens | hay_tokens
-    return len(intersection) / len(union)
+    token_score = len(intersection) / len(union) if intersection else 0.0
+
+    needle_stems = _stem_token_set(needle_tokens)
+    hay_stems = _stem_token_set(hay_tokens)
+    stem_intersection = needle_stems & hay_stems
+    if stem_intersection:
+        stem_union = needle_stems | hay_stems
+        stem_score = len(stem_intersection) / len(stem_union)
+        token_score = max(token_score, stem_score)
+        # «Яблоки» vs «яблоко гренни» — один канонический корень в длинном спросе
+        if len(hay_stems) == 1 and hay_stems <= needle_stems:
+            token_score = max(token_score, 0.92)
+
+    return token_score
 
 
 def _ensure_all_items_present(parsed_items: list[dict], model_items: list[dict]) -> list[dict]:

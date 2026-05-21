@@ -57,7 +57,7 @@ export function ResultPage({ result }: Props) {
   };
 
   return (
-    <section>
+    <section className="page-stack">
       <div className="result-header-row">
         <h2 className="section-title">Результат сопоставления</h2>
         <button type="button" className="btn btn-primary" onClick={onDownload}>

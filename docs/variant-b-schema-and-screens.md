@@ -12,7 +12,7 @@
 | `prices` | сырой прайс поставщика (как сейчас) |
 | текстовый заказ → parse → match | → `procurement_batches` + `demand_lines` |
 | комментарий в результате (runtime) | → `product_specs` + сборка в `supplier_order_lines` |
-| один список результата | глобальный план + экспорт по поставщику × локация × канал |
+| один список результата | глобальный план + экспорт по поставщику × локация × отдел |
 
 ---
 
@@ -21,7 +21,7 @@
 ```mermaid
 erDiagram
   locations ||--o{ demand_lines : has
-  channels ||--o{ demand_lines : has
+  departments ||--o{ demand_lines : has
   procurement_batches ||--o{ demand_lines : contains
   procurement_batches ||--o{ allocations : produces
   procurement_batches ||--o{ supplier_order_lines : exports
@@ -46,7 +46,7 @@ erDiagram
     bool is_active
   }
 
-  channels {
+  departments {
     int id PK
     string code UK
     string name
@@ -93,7 +93,7 @@ erDiagram
     int version
     string scope_type
     int scope_location_id FK
-    int scope_channel_id FK
+    int scope_department_id FK
     int scope_supplier_id FK
     string spec_text
     bool append_to_supplier_order
@@ -114,7 +114,7 @@ erDiagram
     int id PK
     int batch_id FK
     int location_id FK
-    int channel_id FK
+    int department_id FK
     int canonical_product_id FK
     string raw_text
     float quantity
@@ -139,7 +139,7 @@ erDiagram
     int batch_id FK
     int supplier_id FK
     int location_id FK
-    int channel_id FK
+    int department_id FK
     int allocation_id FK
     string supplier_product_name
     float quantity
@@ -167,14 +167,14 @@ CREATE TABLE locations (
   is_active INTEGER NOT NULL DEFAULT 1
 );
 
-CREATE TABLE channels (
+CREATE TABLE departments (
   id INTEGER PRIMARY KEY,
   code TEXT NOT NULL UNIQUE,           -- 'kitchen' | 'bar'
   name TEXT NOT NULL                   -- 'Кухня' | 'Бар'
 );
 
 -- Сиды
-INSERT INTO channels (id, code, name) VALUES (1, 'kitchen', 'Кухня'), (2, 'bar', 'Бар');
+INSERT INTO departments (id, code, name) VALUES (1, 'kitchen', 'Кухня'), (2, 'bar', 'Бар');
 ```
 
 ### 3.2 Каталог и прайсы
@@ -225,15 +225,15 @@ CREATE TABLE product_specs (
   scope_type TEXT NOT NULL DEFAULT 'global'
     CHECK (scope_type IN (
       'global',              -- для всех
-      'channel',             -- кухня или бар
+      'department',             -- кухня или бар
       'location',            -- одна локация
-      'location_channel',    -- локация + канал
+      'location_department',    -- локация + отдел
       'supplier',            -- только при заказе у поставщика S
-      'supplier_channel',    -- поставщик + канал
+      'supplier_department',    -- поставщик + отдел
       'supplier_location'    -- поставщик + локация
     )),
   scope_location_id INTEGER REFERENCES locations(id) ON DELETE CASCADE,
-  scope_channel_id INTEGER REFERENCES channels(id) ON DELETE CASCADE,
+  scope_department_id INTEGER REFERENCES departments(id) ON DELETE CASCADE,
   scope_supplier_id INTEGER REFERENCES suppliers(id) ON DELETE CASCADE,
   spec_text TEXT NOT NULL,             -- 'калибр 25-30', 'только фиолетовый'
   append_to_supplier_order INTEGER NOT NULL DEFAULT 1,
@@ -250,11 +250,11 @@ CREATE INDEX idx_product_specs_product ON product_specs(canonical_product_id, is
 **Приоритет при сборке строки заказа** (от узкого к широкому):
 
 1. `supplier_location`  
-2. `supplier_channel`  
+2. `supplier_department`  
 3. `supplier`  
-4. `location_channel`  
+4. `location_department`  
 5. `location`  
-6. `channel`  
+6. `department`  
 7. `global`  
 
 Активные версии: `is_active=1` и дата в `[valid_from, valid_to]`.
@@ -284,14 +284,14 @@ CREATE TABLE procurement_batches (
 );
 ```
 
-### 3.5 Спрос (по локациям и каналам)
+### 3.5 Спрос (по локациям и отделам)
 
 ```sql
 CREATE TABLE demand_lines (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   batch_id INTEGER NOT NULL REFERENCES procurement_batches(id) ON DELETE CASCADE,
   location_id INTEGER NOT NULL REFERENCES locations(id),
-  channel_id INTEGER NOT NULL REFERENCES channels(id),
+  department_id INTEGER NOT NULL REFERENCES departments(id),
   canonical_product_id INTEGER REFERENCES canonical_products(id),
   raw_text TEXT NOT NULL,              -- исходная строка
   quantity REAL NOT NULL,
@@ -308,7 +308,7 @@ CREATE INDEX idx_demand_lines_batch ON demand_lines(batch_id);
 CREATE INDEX idx_demand_lines_group ON demand_lines(batch_id, canonical_product_id);
 ```
 
-**Ввод:** вставка текста отдельно по `(location, channel)` или одна таблица с колонками локация/канал.
+**Ввод:** вставка текста отдельно по `(location, department)` или одна таблица с колонками локация/отдел.
 
 ### 3.6 Оптимизация (глобально)
 
@@ -329,7 +329,7 @@ CREATE TABLE allocations (
 );
 
 -- Жёсткое бизнес-правило (проверяется оптимизатором и при сохранении):
--- для одного batch_id и canonical_product_id — один supplier_id на все локации/каналы.
+-- для одного batch_id и canonical_product_id — один supplier_id на все локации/отделы.
 -- Клубника не дробится между поставщиками (накладные).
 
 CREATE TABLE supplier_order_totals (
@@ -352,7 +352,7 @@ CREATE TABLE supplier_order_lines (
   batch_id INTEGER NOT NULL REFERENCES procurement_batches(id) ON DELETE CASCADE,
   supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
   location_id INTEGER NOT NULL REFERENCES locations(id),
-  channel_id INTEGER NOT NULL REFERENCES channels(id),
+  department_id INTEGER NOT NULL REFERENCES departments(id),
   allocation_id INTEGER NOT NULL REFERENCES allocations(id) ON DELETE CASCADE,
   supplier_product_name TEXT NOT NULL,
   quantity REAL NOT NULL,
@@ -365,7 +365,7 @@ CREATE TABLE supplier_order_lines (
 );
 
 CREATE INDEX idx_supplier_order_export
-  ON supplier_order_lines(batch_id, supplier_id, location_id, channel_id);
+  ON supplier_order_lines(batch_id, supplier_id, location_id, department_id);
 ```
 
 **Сборка `line_comment`:**
@@ -384,14 +384,14 @@ line_comment = join("\n", [
 | Метод | Путь | Назначение |
 |-------|------|------------|
 | CRUD | `/api/locations` | локации |
-| GET | `/api/channels` | кухня/бар |
+| GET | `/api/departments` | кухня/бар |
 | CRUD | `/api/products` | canonical_products |
 | CRUD | `/api/products/{id}/skus` | supplier_skus |
 | CRUD | `/api/products/{id}/specs` | product_specs (+ версии) |
 | POST | `/api/products/{id}/skus/suggest` | ИИ/правила: предложить матч по прайсам |
 | POST | `/api/procurement/batches` | создать план |
 | GET | `/api/procurement/batches/{id}` | статус + сводка |
-| POST | `/api/procurement/batches/{id}/demand` | загрузить спрос (location, channel, text) |
+| POST | `/api/procurement/batches/{id}/demand` | загрузить спрос (location, department, text) |
 | POST | `/api/procurement/batches/{id}/parse` | парсинг всех demand_lines |
 | POST | `/api/procurement/batches/{id}/match` | матчинг → supplier_sku |
 | POST | `/api/procurement/batches/{id}/optimize` | MILP (см. §8); fallback greedy только при ошибке solver |
@@ -465,11 +465,11 @@ line_comment = join("\n", [
 ├─────────────────────────────────────────────────────────────┤
 │ [+ Добавить правило]                                        │
 ├────────┬──────────┬────────────┬─────────────────┬──────────┤
-│ Область│ Локация  │ Канал      │ Поставщик       │ Текст    │
+│ Область│ Локация  │ Отдел      │ Поставщик       │ Текст    │
 ├────────┼──────────┼────────────┼─────────────────┼──────────┤
 │ Глобально│ —      │ —          │ —               │ калибр…  │
 │ Поставщик│ —      │ —          │ Кулинарная…     │ упаковка…│
-│ Лок+канал│ Loc2   │ Бар        │ —               │ …        │
+│ Лок+отдел│ Loc2   │ Бар        │ —               │ …        │
 └────────┴──────────┴────────────┴─────────────────┴──────────┘
 │ История версий (v3 активна с 01.05.2026)                   │
 └─────────────────────────────────────────────────────────────┘
@@ -477,7 +477,7 @@ line_comment = join("\n", [
 
 **Поля формы:**
 - `spec_text` (многострочный);
-- `scope_type` + селекты локация/канал/поставщик;
+- `scope_type` + селекты локация/отдел/поставщик;
 - `valid_from` / `valid_to`;
 - превью: «Как увидит поставщик X строку по клубнике».
 
@@ -493,18 +493,18 @@ line_comment = join("\n", [
 ┌─────────────────────────────────────────────────────────────┐
 │ План закупки #12 · черновик          [Сохранить] [Далее →] │
 ├─────────────────────────────────────────────────────────────┤
-│ Локация: [Loc1 ▼]   Канал: [Кухня ▼]                       │
+│ Локация: [Loc1 ▼]   Отдел: [Кухня ▼]                       │
 │ ┌─────────────────────────────────────────────────────────┐ │
 │ │ Брокколи 3 кг                                           │ │
 │ │ Клубника 2 кг                                           │ │
 │ └─────────────────────────────────────────────────────────┘ │
 │ [Проверить ввод]                                            │
 │                                                             │
-│ Сводка: 4 локации × 2 канала = 8 блоков  (3/8 заполнено)  │
+│ Сводка: 4 локации × 2 отдела = 8 блоков  (3/8 заполнено)  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-- переключение локация/канал;
+- переключение локация/отдел;
 - таблица всех `demand_lines` с фильтром;
 - статусы: ok / needs_product / unparsed.
 
@@ -519,7 +519,7 @@ line_comment = join("\n", [
 │ Матчинг                    [Запустить матчинг] [Далее →]   │
 │ Проблемных строк: 3 из 40                                   │
 ├────┬────────┬──────┬──────────────┬────────────────────────┤
-│Loc │ Канал  │Спрос │ Канон.       │ SKU у поставщиков      │
+│Loc │ Отдел  │Спрос │ Канон.       │ SKU у поставщиков      │
 ├────┼────────┼──────┼──────────────┼────────────────────────┤
 │ L1 │ Кухня  │Огурцы│ Огурцы       │ ✓ С1, ✓ С2  [изменить]│
 │ L2 │ Бар    │…     │ ?            │ ⚠ выбрать продукт      │
@@ -563,7 +563,7 @@ line_comment = join("\n", [
 │ Заказы поставщикам              [Скачать все xlsx]          │
 ├─────────────────────────────────────────────────────────────┤
 │ Поставщик: [Кулинарная студия ▼]  Локация: [Loc1 ▼]        │
-│ Канал: [Кухня ▼]                                            │
+│ Отдел: [Кухня ▼]                                            │
 ├─────────────────────────────────────────────────────────────┤
 │ Название (из прайса) │ Кол-во │ Ед. │ Комментарий          │
 │ Клубника свежая      │ 2.000  │ кг  │ калибр 25-30         │
@@ -583,13 +583,13 @@ line_comment = join("\n", [
 | | 4.4 Заказы поставщикам | 4.5 Сводка |
 |--|------------------------|------------|
 | Аудитория | текст «как отправить поставщику» | вы смотрите всю картину |
-| Разрез | один поставщик + одна локация + канал | все поставщики и локации сразу |
+| Разрез | один поставщик + одна локация + отдел | все поставщики и локации сразу |
 | Цель | проверить комментарии, скачать лист | контроль сумм, мин. заказов, кто что везёт |
 
 **Содержимое (аналог текущей вкладки «Результат»):**
 
 - большая таблица: продукт × колонки поставщиков (цена / кол-во / сумма);
-- фильтр по локации и каналу;
+- фильтр по локации и отделу;
 - строка «Итого», подсветка «не найдено», статус мин. заказа по поставщику;
 - **Скачать сводный xlsx** (внутренний, не для отправки поставщику).
 
@@ -615,9 +615,9 @@ line_comment = join("\n", [
 
 **Файлы / листы для поставщиков:**
 
-- лист: `{supplier}_{location}_{channel}`  
+- лист: `{supplier}_{location}_{department}`  
 - колонки: `Название | Кол-во | Ед. | Цена | Сумма | Комментарий`  
-- шапка: локация, канал, дата, контакт.
+- шапка: локация, отдел, дата, контакт.
 
 ---
 
@@ -666,7 +666,7 @@ flowchart LR
 
 ### Жёсткие ограничения
 
-1. **Один поставщик на канонический продукт** в рамках `procurement_batch` (все локации/каналы):  
+1. **Один поставщик на канонический продукт** в рамках `procurement_batch` (все локации/отделы):  
    \(\sum_s y_{p,s} = 1\) для каждого продукта \(p\).
 2. **Не дробить продукт** между поставщиками (клубника целиком одному).
 3. **Мин. заказ:** если поставщик \(s\) используется, \(\sum_p cost_{p,s} \geq min\_order_s\).
@@ -700,7 +700,7 @@ flowchart LR
 
 | Этап | Таблицы / экраны | Срок ориентир |
 |------|------------------|---------------|
-| 1 | `locations`, `channels`, CRUD настройки | 1 нед |
+| 1 | `locations`, `departments`, CRUD настройки | 1 нед |
 | 2 | `canonical_products`, `supplier_skus`, экран Словарь | 1–2 нед |
 | 3 | `product_specs`, экран Спецификации | 1 нед |
 | 4 | `procurement_batches`, `demand_lines`, wizard спрос | 1–2 нед |
@@ -714,4 +714,4 @@ flowchart LR
 
 1. Существующие `prices` не трогать.  
 2. Опционально: автосоздать `canonical_products` из уникальных строк заказов (ручная чистка).  
-3. Текущий flow «Заказ → Сопоставить → Результат» → вкладка **«Быстрый заказ»** внутри «План закупки» (одна локация, один канал) для обратной совместимости.
+3. Текущий flow «Заказ → Сопоставить → Результат» → вкладка **«Быстрый заказ»** внутри «План закупки» (одна локация, один отдел) для обратной совместимости.

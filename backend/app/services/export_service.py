@@ -6,7 +6,11 @@ from openpyxl import Workbook
 def build_export_xlsx(payload: dict) -> bytes:
     wb = Workbook()
     ws = wb.active
-    ws.title = "result"
+    ws.title = payload.get("sheet_title", "result")
+    for meta_row in payload.get("meta_rows", []):
+        ws.append(meta_row if isinstance(meta_row, list) else [meta_row])
+    if payload.get("meta_rows"):
+        ws.append([])
     items = payload.get("items", [])
     supplier_names = payload.get("supplier_names", {})
 
