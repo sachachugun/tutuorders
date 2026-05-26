@@ -69,16 +69,20 @@ def _preprocess_line(line: str) -> tuple[str, str | None]:
 
 
 def _parse_quantity_token(raw: str) -> float:
-    """Число без единицы: 3, 0.6, 03→3, 025→0.25, 0125→0.125 (кг по умолчанию)."""
+    """
+    Кг по умолчанию.
+    - 7, 14 → целые килограммы
+    - 0.6, 0,6 → как записано
+    - 03, 025 → «0,3» / «0,25» кг (ведущий ноль = запятая после нуля): 03 → 300 г
+    """
     s = (raw or "").strip().replace(",", ".")
     if not s:
         raise ValueError("empty quantity")
     if "." in s:
         return float(s)
-    if s.startswith("0") and len(s) > 1:
-        if len(s) <= 2:
-            return float(int(s))
-        return float(s) / (10 ** (len(s) - 1))
+    if s.startswith("0") and len(s) > 1 and s.isdigit():
+        # 03 → 0.3, 025 → 0.25, 0125 → 0.125
+        return float(f"0.{s[1:]}")
     return float(int(s))
 
 
