@@ -1,7 +1,8 @@
+import difflib
 import json
 import logging
-import time
 import re
+import time
 
 import httpx
 from fastapi import HTTPException
@@ -139,6 +140,15 @@ def _units_compatible(order_unit: str, candidate_unit: str) -> bool:
     return order_group == candidate_group
 
 
+def _single_word_typo_score(left: str, right: str) -> float:
+    """Опечатки в одном слове: «цукини» ≈ «цуккини» (нет общих токенов/подстрок)."""
+    if len(left) < 4 or len(right) < 4:
+        return 0.0
+    if abs(len(left) - len(right)) > 2:
+        return 0.0
+    return difflib.SequenceMatcher(None, left, right).ratio()
+
+
 def _name_match_score(needle: str, hay: str) -> float:
     if not needle or not hay:
         return 0.0
@@ -165,6 +175,11 @@ def _name_match_score(needle: str, hay: str) -> float:
         # «Яблоки» vs «яблоко гренни» — один канонический корень в длинном спросе
         if len(hay_stems) == 1 and hay_stems <= needle_stems:
             token_score = max(token_score, 0.92)
+
+    if len(needle_tokens) == 1 and len(hay_tokens) == 1:
+        typo = _single_word_typo_score(next(iter(needle_tokens)), next(iter(hay_tokens)))
+        if typo >= 0.84:
+            token_score = max(token_score, typo)
 
     return token_score
 
