@@ -88,6 +88,23 @@ curl -s http://127.0.0.1:8000/api/health
 
 `folder_id` можно задать в `.env` или в БД (`settings`, ключ `folder_id`); API-ключ **только** в `.env`.
 
+### Если `configured: false`, а в `backend/.env` всё заполнено
+
+1. Имена переменных **строго** такие (см. `.env.example`):
+   `YANDEX_API_KEY`, `YANDEX_FOLDER_ID`, `YANDEX_MODEL_NAME`.
+2. На сервере посмотрите блок `"env"` в `/api/health`:
+   - `root_env_exists: true` и пустые ключи в `/opt/tutuorders/.env` — удалите корневой `.env` или перенесите ключи в `backend/.env`.
+   - `yandex_api_key_in_os_env: true` и `yandex_api_key_os_nonempty: false` — в **systemd** задан пустой `YANDEX_API_KEY`; уберите строку из unit или добавьте `EnvironmentFile=/opt/tutuorders/backend/.env`.
+3. Диагностика в shell (значения ключей не печатаются):
+
+```bash
+cd /opt/tutuorders/backend
+source .venv/bin/activate
+python -c "from app.config import ENV_FILES, settings; print('files', ENV_FILES); print('key_ok', bool(settings.yandex_api_key)); print('folder_ok', bool(settings.yandex_folder_id))"
+grep -E '^YANDEX_' .env | cut -d= -f1
+systemctl cat tutuorders-backend | grep -iE 'Environment|YANDEX'
+```
+
 ## Проверка после деплоя
 
 | Проверка | Ожидание |
