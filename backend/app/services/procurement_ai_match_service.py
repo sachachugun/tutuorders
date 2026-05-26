@@ -8,12 +8,9 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models import CanonicalProduct
 from app.services.match_service import YANDEX_URL, _extract_json_object, _loads_model_json, _safe_error_text
+from app.services.yandex_config import resolve_yandex_folder_id, resolve_yandex_model_name, yandex_configured
 
 logger = logging.getLogger(__name__)
-
-
-def yandex_configured() -> bool:
-    return bool(settings.yandex_api_key and settings.yandex_folder_id)
 
 
 def ai_resolve_demand_to_products(db: Session, demand_names: list[str]) -> dict[str, int]:
@@ -21,7 +18,7 @@ def ai_resolve_demand_to_products(db: Session, demand_names: list[str]) -> dict[
     Map demand names to canonical product ids via YandexGPT.
     Returns {normalized_demand_name: product_id} for confident matches only.
     """
-    if not yandex_configured():
+    if not yandex_configured(db):
         return {}
 
     unique_names = []
@@ -44,7 +41,7 @@ def ai_resolve_demand_to_products(db: Session, demand_names: list[str]) -> dict[
         "demand_names": unique_names,
     }
     body = {
-        "modelUri": f"gpt://{settings.yandex_folder_id}/{settings.yandex_model_name}/latest",
+        "modelUri": f"gpt://{resolve_yandex_folder_id(db)}/{resolve_yandex_model_name(db)}/latest",
         "completionOptions": {"temperature": 0.0, "maxTokens": 4000},
         "messages": [
             {

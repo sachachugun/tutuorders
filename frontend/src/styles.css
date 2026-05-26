@@ -542,6 +542,18 @@ textarea:focus {
   line-height: 1.4;
 }
 
+.procurement-batch-hint {
+  margin: 0;
+  width: 100%;
+  flex-basis: 100%;
+}
+
+.status-message.error {
+  color: #7e1e44;
+  background: #fff4f8;
+  border-color: #efb4c7;
+}
+
 .sku-coverage-list {
   display: flex;
   flex-wrap: wrap;

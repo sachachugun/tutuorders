@@ -348,7 +348,13 @@ export async function createProcurementBatch(payload: { plan_label: string; resp
 
 export async function getProcurementBatches() {
   const response = await apiFetch("/api/procurement/batches");
-  if (!response.ok) throw new Error("Не удалось загрузить планы закупки");
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    const detail = errorData.detail;
+    throw new Error(
+      typeof detail === "string" ? detail : detail ? JSON.stringify(detail) : "Не удалось загрузить планы закупки"
+    );
+  }
   return response.json();
 }
 

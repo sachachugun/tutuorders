@@ -301,6 +301,7 @@ class ProcurementMatchResponse(BaseModel):
     match_mode: str = "local"
     ai_assigned_count: int = 0
     ai_available: bool = False
+    yandex: dict | None = None
     products_missing_price_count: int = 0
 
 

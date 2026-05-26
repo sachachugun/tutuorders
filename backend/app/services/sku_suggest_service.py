@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models import Price, Supplier
 from app.services.match_service import YANDEX_URL, _extract_json_object, _loads_model_json, _name_match_score, _normalize_name, _safe_error_text
-from app.services.procurement_ai_match_service import yandex_configured
+from app.services.yandex_config import resolve_yandex_folder_id, resolve_yandex_model_name, yandex_configured
 
 logger = logging.getLogger(__name__)
 
@@ -54,10 +54,10 @@ def _ai_pick_prices(
     unit: str | None,
     suppliers_payload: list[dict],
 ) -> dict[int, list[str]]:
-    if not yandex_configured():
+    if not yandex_configured(db):
         return {}
     body = {
-        "modelUri": f"gpt://{settings.yandex_folder_id}/{settings.yandex_model_name}/latest",
+        "modelUri": f"gpt://{resolve_yandex_folder_id(db)}/{resolve_yandex_model_name(db)}/latest",
         "completionOptions": {"temperature": 0.0, "maxTokens": 3000},
         "messages": [
             {
@@ -125,7 +125,7 @@ def suggest_skus_for_product_name(db: Session, product_name: str, unit: str | No
         )
 
     weak = all(len(block["candidates"]) == 0 or block["candidates"][0]["score"] < 0.55 for block in supplier_blocks)
-    if weak and yandex_configured():
+    if weak and yandex_configured(db):
         ai_payload = []
         for supplier in suppliers:
             prices = db.scalars(select(Price).where(Price.supplier_id == supplier.id)).all()
