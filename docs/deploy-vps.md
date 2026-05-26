@@ -68,7 +68,7 @@ sudo nginx -t && sudo systemctl reload nginx
 ```env
 YANDEX_FOLDER_ID=b1gxxxxxxxxxx
 YANDEX_API_KEY=AQVNxxxxxxxx
-YANDEX_MODEL_NAME=yandexgpt-pro
+YANDEX_MODEL_NAME=yandexgpt
 YANDEX_TIMEOUT_SECONDS=25
 ```
 
@@ -87,6 +87,25 @@ curl -s http://127.0.0.1:8000/api/health
 В ответе `"yandex": {"configured": true, ...}` — ИИ включён.
 
 `folder_id` можно задать в `.env` или в БД (`settings`, ключ `folder_id`); API-ключ **только** в `.env`.
+
+### Если в логах `unknown model 'gpt://yandexgpt-pro/latest'`
+
+Это обычно означает, что в БД (`settings`) остался `model_name=yandexgpt-pro`, который перекрывает `.env`.
+
+Проверка:
+
+```bash
+sqlite3 /opt/tutuorders/backend/app.db "SELECT key, value FROM settings WHERE key IN ('folder_id','model_name');"
+```
+
+Исправление:
+
+```bash
+sqlite3 /opt/tutuorders/backend/app.db "UPDATE settings SET value='yandexgpt' WHERE key='model_name';"
+sudo systemctl restart tutuorders-backend
+```
+
+После этого `POST /api/procurement/batches/{id}/match` должен перестать падать в `procurement_ai_match http 404`.
 
 ### Если `configured: false`, а в `backend/.env` всё заполнено
 
