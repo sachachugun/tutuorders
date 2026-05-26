@@ -92,6 +92,7 @@ export function ProcurementPage() {
   const [commentDraft, setCommentDraft] = useState("");
   const [isBuildingOrders, setIsBuildingOrders] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [copiedSupplierId, setCopiedSupplierId] = useState<number | null>(null);
   const [summaryState, setSummaryState] = useState<any | null>(null);
   const [summaryLocationId, setSummaryLocationId] = useState<number | null>(null);
   const [summaryDepartmentId, setSummaryDepartmentId] = useState<number | null>(null);
@@ -224,6 +225,74 @@ export function ProcurementPage() {
   }, [ordersState, filterSupplierId, filterLocationId, filterDepartmentId]);
 
   const activeOrderLines = activeOrderGroup?.lines || [];
+
+  const supplierMessages = useMemo(() => {
+    if (!ordersState?.groups?.length) return [];
+
+    const cleanOneLine = (s: unknown) =>
+      String(s || "")
+        .replace(/\r?\n/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const formatQty = (q: unknown) => {
+      const n = Number(q || 0);
+      // до 3 знаков после запятой, без лишних нулей
+      return String(n.toFixed(3)).replace(/\.?0+$/, "");
+    };
+
+    const groups = ordersState.groups as any[];
+    const suppliers = ordersState.suppliers as any[];
+    const groupsBySupplier: Record<number, any[]> = {};
+    for (const g of groups) {
+      if (!groupsBySupplier[g.supplier_id]) groupsBySupplier[g.supplier_id] = [];
+      groupsBySupplier[g.supplier_id].push(g);
+    }
+
+    const result = (suppliers.length ? suppliers : Object.keys(groupsBySupplier).map((k) => ({ id: Number(k), name: `S${k}` }))).map(
+      (s: any) => {
+        const sGroups = groupsBySupplier[s.id] || [];
+        sGroups.sort((a: any, b: any) => {
+          const d1 = (a.location_name || "").localeCompare(b.location_name || "");
+          if (d1 !== 0) return d1;
+          return (a.department_name || "").localeCompare(b.department_name || "");
+        });
+
+        const parts: string[] = [];
+        parts.push(`Поставщик: ${s.name}`);
+        for (const g of sGroups) {
+          parts.push(`${g.location_name} + ${g.department_name}`);
+          for (const ln of g.lines || []) {
+            const qtyText = `${formatQty(ln.quantity)} ${ln.unit}`;
+            const specText = cleanOneLine(ln.spec_text);
+            if (specText) {
+              parts.push(`${ln.supplier_product_name}, ${qtyText}, ${specText}`);
+            } else {
+              // fallback: если spec_text пустой, используем line_comment (внутри него обычно тоже есть spec)
+              const commentText = cleanOneLine(ln.line_comment);
+              parts.push(commentText ? `${ln.supplier_product_name}, ${qtyText}, ${commentText}` : `${ln.supplier_product_name}, ${qtyText}`);
+            }
+          }
+          parts.push("");
+        }
+        return { supplierId: s.id as number, supplierName: s.name as string, text: parts.join("\n").trimEnd() };
+      }
+    );
+
+    // отфильтровать пустые
+    return result.filter((m: any) => m.text && m.text.trim());
+  }, [ordersState]);
+
+  const onCopySupplierMessage = async (supplierId: number, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedSupplierId(supplierId);
+      window.setTimeout(() => setCopiedSupplierId(null), 1200);
+    } catch {
+      // fallback: просто выделить через prompt
+      window.prompt("Скопируйте текст вручную:", text);
+    }
+  };
 
   const summarySupplierIds = useMemo(
     () => (summaryState?.supplier_ids || []).slice().sort((a: number, b: number) => a - b),
@@ -1153,6 +1222,29 @@ export function ProcurementPage() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+
+              <div className="supplier-messages">
+                <h4 className="card-subtitle">Сообщения поставщикам</h4>
+                {supplierMessages.length === 0 && <p className="muted">Нет данных для сообщений.</p>}
+                {supplierMessages.map((m: any) => (
+                  <details key={m.supplierId} className="supplier-message-block">
+                    <summary>
+                      <span>{m.supplierName}</span>
+                      <span className="muted">· текст для отправки</span>
+                    </summary>
+                    <textarea className="supplier-message-textarea" readOnly value={m.text} />
+                    <div className="actions-row supplier-message-actions">
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-small"
+                        onClick={() => void onCopySupplierMessage(m.supplierId, m.text)}
+                      >
+                        {copiedSupplierId === m.supplierId ? "Скопировано" : "Скопировать"}
+                      </button>
+                    </div>
+                  </details>
+                ))}
               </div>
             </>
           )}

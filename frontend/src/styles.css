@@ -383,6 +383,34 @@ textarea:focus {
   min-height: 320px;
 }
 
+.supplier-message-block {
+  border: 1px solid var(--brand-30);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-top: 10px;
+  background: rgba(111, 18, 123, 0.03);
+}
+
+.supplier-message-block summary {
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.supplier-message-textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 160px;
+  margin-top: 10px;
+}
+
+.supplier-message-actions {
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
 .actions-row {
   margin: 0;
   display: flex;
