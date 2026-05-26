@@ -57,6 +57,37 @@ sudo nginx -t && sudo systemctl reload nginx
    - **401** — включён `AUTH_ENABLED`, нужен вход / токен;
    - **404** — старый backend без новых роутов.
 
+## YandexGPT (умный поиск на шаге «Проверка»)
+
+На проде в шапке проверки должно быть **«локально + ИИ»**. Если **«только локально»** — backend не видит ключи.
+
+Файл **`/opt/tutuorders/backend/.env`** (не в git). Важно: unit systemd должен либо иметь
+`WorkingDirectory=/opt/tutuorders/backend`, либо ключи подхватятся из абсолютного пути к этому файлу
+(после обновления `app/config.py`).
+
+```env
+YANDEX_FOLDER_ID=b1gxxxxxxxxxx
+YANDEX_API_KEY=AQVNxxxxxxxx
+YANDEX_MODEL_NAME=yandexgpt-pro
+YANDEX_TIMEOUT_SECONDS=25
+```
+
+После правки:
+
+```bash
+sudo systemctl restart tutuorders-backend
+```
+
+Проверка (с сервера или с ПК через curl к API):
+
+```bash
+curl -s http://127.0.0.1:8000/api/health
+```
+
+В ответе `"yandex": {"configured": true, ...}` — ИИ включён.
+
+`folder_id` можно задать в `.env` или в БД (`settings`, ключ `folder_id`); API-ключ **только** в `.env`.
+
 ## Проверка после деплоя
 
 | Проверка | Ожидание |

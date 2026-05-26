@@ -104,8 +104,10 @@ router = APIRouter(prefix="/api")
 
 
 @router.get("/health")
-def health():
-    return {"ok": True}
+def health(db: Session = Depends(get_db)):
+    from app.services.yandex_config import yandex_config_status
+
+    return {"ok": True, "yandex": yandex_config_status(db)}
 
 
 @router.post("/auth/login")

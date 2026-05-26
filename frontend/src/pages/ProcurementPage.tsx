@@ -738,6 +738,15 @@ export function ProcurementPage() {
               </p>
             )}
           </div>
+          {matchState && !matchState.ai_available && matchState.yandex && (
+            <p className="parse-warning">
+              ИИ не подключён на сервере:{" "}
+              {!matchState.yandex.api_key_configured && "нет YANDEX_API_KEY "}
+              {!matchState.yandex.folder_id_configured && "нет folder_id "}
+              — проверьте /opt/tutuorders/backend/.env и перезапустите backend (curl /api/health →
+              yandex.configured).
+            </p>
+          )}
           {matchState?.products_missing_price_count > 0 && (
             <p className="parse-warning">
               У {matchState.products_missing_price_count} продукт(ов) в словаре есть привязка SKU, но позиции нет в

@@ -7,7 +7,8 @@ from app.models import CanonicalProduct, DemandLine, ProcurementBatch, Supplier,
 from app.services.sku_suggest_service import find_price_row
 from app.parsers.order_parser import parse_order_text, parse_single_line
 from app.services.match_service import _name_match_score, _normalize_name
-from app.services.procurement_ai_match_service import ai_resolve_demand_to_products, yandex_configured
+from app.services.procurement_ai_match_service import ai_resolve_demand_to_products
+from app.services.yandex_config import yandex_config_status, yandex_configured
 from app.services.procurement_batch_meta import apply_batch_status
 from app.services.procurement_service import demand_line_to_out
 
@@ -220,7 +221,8 @@ def get_batch_match_state(db: Session, batch_id: int) -> dict:
         "items": items,
         "match_mode": "local",
         "ai_assigned_count": 0,
-        "ai_available": yandex_configured(),
+        "ai_available": yandex_configured(db),
+        "yandex": yandex_config_status(db),
         "products_missing_price_count": products_missing_price,
     }
 
@@ -251,7 +253,7 @@ def run_batch_match(db: Session, batch_id: int) -> dict:
         if demand_name:
             unresolved_by_name.setdefault(demand_name, []).append(line)
 
-    if unresolved_by_name and yandex_configured():
+    if unresolved_by_name and yandex_configured(db):
         ai_map = ai_resolve_demand_to_products(db, list(unresolved_by_name.keys()))
         if ai_map:
             match_mode = "local+ai"
@@ -279,7 +281,8 @@ def run_batch_match(db: Session, batch_id: int) -> dict:
     state["batch_status"] = batch.status
     state["match_mode"] = match_mode
     state["ai_assigned_count"] = ai_assigned_count
-    state["ai_available"] = yandex_configured()
+    state["ai_available"] = yandex_configured(db)
+    state["yandex"] = yandex_config_status(db)
     return state
 
 
