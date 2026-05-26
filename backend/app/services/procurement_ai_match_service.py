@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models import CanonicalProduct
 from app.services.match_service import YANDEX_URL, _extract_json_object, _loads_model_json, _safe_error_text
-from app.services.yandex_config import resolve_yandex_folder_id, resolve_yandex_model_name, yandex_configured
+from app.services.yandex_config import build_yandex_model_uri, yandex_configured
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +40,9 @@ def ai_resolve_demand_to_products(db: Session, demand_names: list[str]) -> dict[
         "canonical_products": [{"id": p.id, "name": p.name, "unit": p.default_unit} for p in products],
         "demand_names": unique_names,
     }
+    model_uri = build_yandex_model_uri(db)
     body = {
-        "modelUri": f"gpt://{resolve_yandex_folder_id(db)}/{resolve_yandex_model_name(db)}/latest",
+        "modelUri": model_uri,
         "completionOptions": {"temperature": 0.0, "maxTokens": 4000},
         "messages": [
             {
@@ -62,7 +63,12 @@ def ai_resolve_demand_to_products(db: Session, demand_names: list[str]) -> dict[
         with httpx.Client(timeout=settings.yandex_timeout_seconds) as client:
             response = client.post(YANDEX_URL, headers=headers, json=body)
         if response.status_code >= 400:
-            logger.warning("procurement_ai_match http %s: %s", response.status_code, _safe_error_text(response.text))
+            logger.warning(
+                "procurement_ai_match http %s model_uri=%s: %s",
+                response.status_code,
+                model_uri,
+                _safe_error_text(response.text),
+            )
             return {}
         data = response.json()
         text = data["result"]["alternatives"][0]["message"]["text"]

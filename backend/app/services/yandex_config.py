@@ -20,11 +20,26 @@ def resolve_yandex_folder_id(db: Session | None = None) -> str:
 
 
 def resolve_yandex_model_name(db: Session | None = None) -> str:
+    raw = ""
     if db is not None:
         row = db.get(Setting, "model_name")
         if row and (row.value or "").strip():
-            return row.value.strip()
-    return (settings.yandex_model_name or "yandexgpt-pro").strip()
+            raw = row.value.strip()
+    if not raw:
+        raw = (settings.yandex_model_name or "yandexgpt").strip()
+    # В БД/ .env иногда попадает полный URI — оставляем только имя модели.
+    if raw.startswith("gpt://"):
+        parts = [p for p in raw.replace("gpt://", "").split("/") if p]
+        raw = parts[-2] if len(parts) >= 2 and parts[-1] == "latest" else (parts[0] if parts else raw)
+    return raw or "yandexgpt"
+
+
+def build_yandex_model_uri(db: Session | None = None) -> str:
+    folder_id = resolve_yandex_folder_id(db)
+    model_name = resolve_yandex_model_name(db)
+    if not folder_id:
+        return f"gpt://{model_name}/latest"
+    return f"gpt://{folder_id}/{model_name}/latest"
 
 
 def yandex_api_key_configured() -> bool:
@@ -60,5 +75,6 @@ def yandex_config_status(db: Session | None = None) -> dict:
         "folder_id_configured": bool(folder_id),
         "configured": yandex_configured(db),
         "model_name": resolve_yandex_model_name(db),
+        "model_uri": build_yandex_model_uri(db),
         "env": yandex_env_diagnostics(),
     }
