@@ -104,12 +104,13 @@ def save_demand_text(
                 location_id=location_id,
                 department_id=department_id,
                 canonical_product_id=canonical_id,
-                raw_text=f"{item['name']} {item['quantity']} {item['unit']}",
+                raw_text=item.get("source_line") or f"{item['name']} {item['quantity']} {item['unit']}",
                 quantity=float(item["quantity"]),
                 unit=item["unit"],
                 normalized_quantity=float(item["quantity"]),
                 normalized_unit=item["unit"],
                 parse_status=status,
+                line_notes=item.get("unit_note"),
                 sort_order=sort_order,
             )
         )
