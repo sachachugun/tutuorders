@@ -21,6 +21,10 @@ from app.services.procurement_match_service import _match_row, match_ready_for_a
 logger = logging.getLogger(__name__)
 
 SUPPLIER_PENALTY_RUB = 500.0
+OPTIMIZE_MODE_MIN_ORDER = "optimize_min_order"
+OPTIMIZE_MODE_CHEAPEST = "cheapest_only"
+OPTIMIZE_MODE_HYBRID = "hybrid_topup"
+OPTIMIZE_MODES = {OPTIMIZE_MODE_MIN_ORDER, OPTIMIZE_MODE_CHEAPEST, OPTIMIZE_MODE_HYBRID}
 
 
 @dataclass
@@ -30,6 +34,22 @@ class ProductOption:
     total_quantity: float
     unit: str
     options: list[dict]
+
+
+def _optimizer_mode_label(mode: str) -> str:
+    if mode == "milp":
+        return "Оптимизация (MILP)"
+    if mode == "greedy_fallback":
+        return "Оптимизация (запасной алгоритм)"
+    if mode == OPTIMIZE_MODE_MIN_ORDER:
+        return "Оптимизация с учетом минимального заказа"
+    if mode == OPTIMIZE_MODE_CHEAPEST:
+        return "Мин. цена по позиции"
+    if mode == OPTIMIZE_MODE_HYBRID:
+        return "Гибрид: мин. цена + подсказка добора"
+    if mode == "manual":
+        return "Ручной override"
+    return mode
 
 
 def _line_quantity(line: DemandLine) -> float:
@@ -141,6 +161,74 @@ def _solve_greedy(products: list[ProductOption], suppliers: list[Supplier]) -> d
         best = min(product.options, key=lambda o: (not o["is_preferred"], o["line_cost"]))
         assignment[product.product_id] = int(best["supplier_id"])
     return assignment
+
+
+def _build_topup_suggestions(
+    products: list[ProductOption], suppliers: list[Supplier], assignment: dict[int, int]
+) -> list[dict]:
+    supplier_names = {s.id: s.name for s in suppliers}
+    min_orders = {s.id: float(s.min_order_amount or 0) for s in suppliers}
+
+    assigned_cost_by_product: dict[int, float] = {}
+    spend_by_supplier: dict[int, float] = {}
+    for product in products:
+        s_id = assignment.get(product.product_id)
+        if not s_id:
+            continue
+        chosen = next((opt for opt in product.options if int(opt["supplier_id"]) == int(s_id)), None)
+        if not chosen:
+            continue
+        line_cost = float(chosen["line_cost"])
+        assigned_cost_by_product[product.product_id] = line_cost
+        spend_by_supplier[s_id] = spend_by_supplier.get(s_id, 0.0) + line_cost
+
+    suggestions: list[dict] = []
+    for s_id, amount in spend_by_supplier.items():
+        min_order = min_orders.get(s_id, 0.0)
+        if min_order <= 0:
+            continue
+        deficit = round(max(0.0, min_order - amount), 2)
+        if deficit <= 0:
+            continue
+
+        candidates: list[dict] = []
+        for product in products:
+            if assignment.get(product.product_id) == s_id:
+                continue
+            current_cost = assigned_cost_by_product.get(product.product_id)
+            supplier_opt = next((opt for opt in product.options if int(opt["supplier_id"]) == int(s_id)), None)
+            if current_cost is None or not supplier_opt:
+                continue
+            target_cost = float(supplier_opt["line_cost"])
+            extra_cost = round(target_cost - current_cost, 2)
+            candidates.append(
+                {
+                    "canonical_product_id": product.product_id,
+                    "canonical_product_name": product.product_name,
+                    "quantity": product.total_quantity,
+                    "unit": product.unit,
+                    "current_supplier_id": assignment.get(product.product_id),
+                    "current_supplier_name": supplier_names.get(assignment.get(product.product_id), ""),
+                    "target_supplier_id": s_id,
+                    "target_supplier_name": supplier_names.get(s_id, ""),
+                    "current_line_cost": round(current_cost, 2),
+                    "target_line_cost": round(target_cost, 2),
+                    "extra_cost": extra_cost,
+                }
+            )
+        candidates.sort(key=lambda row: (row["extra_cost"], -row["target_line_cost"]))
+        suggestions.append(
+            {
+                "supplier_id": s_id,
+                "supplier_name": supplier_names.get(s_id, ""),
+                "current_amount": round(amount, 2),
+                "min_order_amount": round(min_order, 2),
+                "deficit": deficit,
+                "candidates": candidates[:8],
+            }
+        )
+    suggestions.sort(key=lambda row: row["deficit"], reverse=True)
+    return suggestions
 
 
 def _solve_milp(products: list[ProductOption], suppliers: list[Supplier]) -> dict[int, int] | None:
@@ -271,27 +359,44 @@ def _persist_allocations(
     apply_batch_status(batch, "optimized")
 
 
-def run_optimize(db: Session, batch_id: int) -> dict:
+def run_optimize(db: Session, batch_id: int, mode: str = OPTIMIZE_MODE_MIN_ORDER) -> dict:
     batch = db.get(ProcurementBatch, batch_id)
     if not batch:
         raise ValueError("batch_not_found")
+    if mode not in OPTIMIZE_MODES:
+        raise ValueError("invalid_mode")
 
     products, skipped = _build_product_options(db, batch_id)
     if not products:
         raise ValueError("nothing_to_optimize")
 
     suppliers = db.scalars(select(Supplier).order_by(Supplier.id)).all()
-    assignment = _solve_milp(products, suppliers)
-    mode = "milp"
+    topup_suggestions: list[dict] = []
+    assignment: dict[int, int] | None = None
+    optimizer_mode = mode
     warning = None
-    if assignment is None:
+    if mode == OPTIMIZE_MODE_MIN_ORDER:
+        assignment = _solve_milp(products, suppliers)
+        optimizer_mode = "milp"
+        if assignment is None:
+            assignment = _solve_greedy(products, suppliers)
+            optimizer_mode = "greedy_fallback"
+            warning = "MILP не нашёл решение — использован запасной алгоритм (мин. цена по позиции). Проверьте мин. заказы."
+    elif mode == OPTIMIZE_MODE_CHEAPEST:
         assignment = _solve_greedy(products, suppliers)
-        mode = "greedy_fallback"
-        warning = "MILP не нашёл решение — использован запасной алгоритм (мин. цена по позиции). Проверьте мин. заказы."
+        optimizer_mode = OPTIMIZE_MODE_CHEAPEST
+    elif mode == OPTIMIZE_MODE_HYBRID:
+        assignment = _solve_greedy(products, suppliers)
+        optimizer_mode = OPTIMIZE_MODE_HYBRID
+        topup_suggestions = _build_topup_suggestions(products, suppliers, assignment)
+        if topup_suggestions:
+            warning = "Показан базовый вариант по мин. цене и подсказки, какие позиции можно докинуть для выполнения минимального заказа."
+    if assignment is None:
+        raise ValueError("nothing_to_optimize")
 
-    _persist_allocations(db, batch, assignment, "optimizer", mode)
+    _persist_allocations(db, batch, assignment, "optimizer", optimizer_mode)
     db.commit()
-    return get_allocation_state(db, batch_id, warning=warning)
+    return get_allocation_state(db, batch_id, warning=warning, topup_suggestions=topup_suggestions)
 
 
 def override_product_supplier(
@@ -322,7 +427,9 @@ def override_product_supplier(
     return get_allocation_state(db, batch_id)
 
 
-def get_allocation_state(db: Session, batch_id: int, warning: str | None = None) -> dict:
+def get_allocation_state(
+    db: Session, batch_id: int, warning: str | None = None, topup_suggestions: list[dict] | None = None
+) -> dict:
     batch = db.get(ProcurementBatch, batch_id)
     if not batch:
         raise ValueError("batch_not_found")
@@ -403,6 +510,7 @@ def get_allocation_state(db: Session, batch_id: int, warning: str | None = None)
         "batch_id": batch_id,
         "batch_status": batch.status,
         "optimizer_mode": batch.optimizer_mode,
+        "mode_label": _optimizer_mode_label(batch.optimizer_mode or ""),
         "total_amount": float(batch.total_amount or 0),
         "warning": warning,
         "skipped_lines_count": len(skipped),
@@ -422,4 +530,5 @@ def get_allocation_state(db: Session, batch_id: int, warning: str | None = None)
             }
             for p in products
         ],
+        "topup_suggestions": topup_suggestions or [],
     }

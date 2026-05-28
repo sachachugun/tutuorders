@@ -26,10 +26,15 @@ import {
 import { AddProductModal } from "../components/AddProductModal";
 
 type WizardStep = "demand" | "match" | "optimize" | "orders" | "summary";
+type OptimizeMode = "optimize_min_order" | "cheapest_only" | "hybrid_topup";
 
 function optimizerModeLabel(mode: string) {
+  if (mode === "optimize_min_order") return "Оптимизация с мин. заказом";
+  if (mode === "cheapest_only") return "Мин. цена по позиции";
+  if (mode === "hybrid_topup") return "Гибрид (мин. цена + подсказка добора)";
   if (mode === "milp") return "MILP";
   if (mode === "greedy_fallback") return "Запасной (мин. цена)";
+  if (mode === "manual") return "Ручной override";
   return mode;
 }
 
@@ -84,6 +89,7 @@ export function ProcurementPage() {
   } | null>(null);
   const [allocState, setAllocState] = useState<any | null>(null);
   const [isOptimizing, setIsOptimizing] = useState(false);
+  const [optimizeMode, setOptimizeMode] = useState<OptimizeMode>("optimize_min_order");
   const [ordersState, setOrdersState] = useState<any | null>(null);
   const [filterSupplierId, setFilterSupplierId] = useState<number | null>(null);
   const [filterLocationId, setFilterLocationId] = useState<number | null>(null);
@@ -578,10 +584,10 @@ export function ProcurementPage() {
     setMessage("");
     setIsOptimizing(true);
     try {
-      const result = await optimizeProcurementBatch(batchId);
+      const result = await optimizeProcurementBatch(batchId, optimizeMode);
       setAllocState(result);
       setMessage(
-        `Распределение: ${result.total_amount.toLocaleString("ru-RU")} ₽ · режим ${optimizerModeLabel(result.optimizer_mode)}`
+        `Распределение: ${result.total_amount.toLocaleString("ru-RU")} ₽ · режим ${result.mode_label || optimizerModeLabel(result.optimizer_mode)}`
       );
       if (result.warning) setMessage((prev) => `${prev} · ${result.warning}`);
       loadBatches();
@@ -999,6 +1005,15 @@ export function ProcurementPage() {
           </div>
           {allocState?.warning && <p className="status-message">{allocState.warning}</p>}
           <div className="actions-row">
+            <select
+              value={optimizeMode}
+              onChange={(e) => setOptimizeMode(e.target.value as OptimizeMode)}
+              aria-label="Режим распределения"
+            >
+              <option value="optimize_min_order">Оптимизация с учетом минимального заказа</option>
+              <option value="cheapest_only">Только минимальная цена по позиции</option>
+              <option value="hybrid_topup">Гибрид: минимальная цена + подсказка добора</option>
+            </select>
             <button className="btn btn-primary" onClick={() => void onOptimize()} disabled={isOptimizing}>
               {isOptimizing ? "Расчёт..." : "Пересчитать"}
             </button>
@@ -1068,6 +1083,43 @@ export function ProcurementPage() {
                         </select>
                       </td>
                       <td>{row.line_cost.toLocaleString("ru-RU")} ₽</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+
+          {allocState?.topup_suggestions?.length > 0 && (
+            <>
+              <h4 className="card-subtitle">Как дотянуть до минимального заказа</h4>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Поставщик</th>
+                    <th>Текущая сумма</th>
+                    <th>Мин. заказ</th>
+                    <th>Недобор</th>
+                    <th>Рекомендации</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allocState.topup_suggestions.map((row: any) => (
+                    <tr key={row.supplier_id}>
+                      <td>{row.supplier_name}</td>
+                      <td>{Number(row.current_amount || 0).toLocaleString("ru-RU")} ₽</td>
+                      <td>{Number(row.min_order_amount || 0).toLocaleString("ru-RU")} ₽</td>
+                      <td>{Number(row.deficit || 0).toLocaleString("ru-RU")} ₽</td>
+                      <td>
+                        {(row.candidates || []).slice(0, 3).map((c: any, idx: number) => (
+                          <div key={`${row.supplier_id}-${c.canonical_product_id}-${idx}`} className="muted">
+                            {c.canonical_product_name}: +{Number(c.extra_cost || 0).toLocaleString("ru-RU")} ₽
+                            {" · "}
+                            c {c.current_supplier_name || "текущего"} на {c.target_supplier_name}
+                          </div>
+                        ))}
+                        {!(row.candidates || []).length && <span className="muted">Нет подходящих позиций для добора</span>}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

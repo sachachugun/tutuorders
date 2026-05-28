@@ -57,6 +57,7 @@ from app.schemas import (
     ProductSpecUpdateRequest,
     ProcurementBatchCreateRequest,
     ProcurementBatchOut,
+    ProcurementOptimizeRequest,
     ProcurementOptimizeResponse,
     ProcurementSummaryResponse,
     ProductSupplierOverrideRequest,
@@ -1024,9 +1025,15 @@ def get_procurement_allocations(batch_id: int, db: Session = Depends(get_db), _:
 
 
 @router.post("/procurement/batches/{batch_id}/optimize", response_model=ProcurementOptimizeResponse)
-def optimize_procurement_batch(batch_id: int, db: Session = Depends(get_db), _: str = Depends(require_auth)):
+def optimize_procurement_batch(
+    batch_id: int,
+    payload: ProcurementOptimizeRequest | None = None,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_auth),
+):
     try:
-        return run_optimize(db, batch_id)
+        mode = payload.mode if payload else "optimize_min_order"
+        return run_optimize(db, batch_id, mode)
     except ValueError as exc:
         code = str(exc)
         if code == "batch_not_found":
@@ -1036,6 +1043,8 @@ def optimize_procurement_batch(batch_id: int, db: Session = Depends(get_db), _: 
                 status_code=400,
                 detail="Нет строк для оптимизации — завершите проверку (все строки OK + SKU)",
             ) from exc
+        if code == "invalid_mode":
+            raise HTTPException(status_code=400, detail="Неизвестный режим распределения") from exc
         raise
 
 

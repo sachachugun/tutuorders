@@ -433,8 +433,15 @@ export async function getProcurementAllocations(batchId: number) {
   return response.json();
 }
 
-export async function optimizeProcurementBatch(batchId: number) {
-  const response = await apiFetch(`/api/procurement/batches/${batchId}/optimize`, { method: "POST" });
+export async function optimizeProcurementBatch(
+  batchId: number,
+  mode: "optimize_min_order" | "cheapest_only" | "hybrid_topup" = "optimize_min_order"
+) {
+  const response = await apiFetch(`/api/procurement/batches/${batchId}/optimize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode }),
+  });
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.detail || "Не удалось пересчитать распределение");

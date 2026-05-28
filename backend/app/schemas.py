@@ -412,6 +412,7 @@ class ProcurementOptimizeResponse(BaseModel):
     batch_id: int
     batch_status: str
     optimizer_mode: str
+    mode_label: str = ""
     total_amount: float
     warning: str | None
     skipped_lines_count: int
@@ -420,6 +421,11 @@ class ProcurementOptimizeResponse(BaseModel):
     line_allocations: list[LineAllocationOut]
     available_suppliers: list[dict]
     optimizable_products: list[dict]
+    topup_suggestions: list[dict] = []
+
+
+class ProcurementOptimizeRequest(BaseModel):
+    mode: str = "optimize_min_order"
 
 
 class SupplierOrderLineOut(BaseModel):
